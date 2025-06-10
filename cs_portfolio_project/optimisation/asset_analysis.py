@@ -65,6 +65,7 @@ def mdd(x):
     return drawdown.min()
 
 
+
 def asset_information(returns, days_in_sample=365):
     """ compute total returns, avg returns (daily and ann), std (ann), max draw down """
     df = pd.DataFrame(index=returns.columns)
@@ -143,7 +144,7 @@ def plot_players_and_asset(players_pctchange, asset_returns, log=0):
     fig.show()
 
 
-def get_ewma_cov_matrix(returns, lambda_=0.94, days_in_sample=365):
+def get_ewma_cov_matrix(returns, lambda_=0.94):
     """
     Compute the EWMA covariance matrix with weights w_t = lambda^(T-t) / sum(lambda^(T-t)).
 
@@ -153,14 +154,14 @@ def get_ewma_cov_matrix(returns, lambda_=0.94, days_in_sample=365):
         days_in_sample (int): Number of days for annualization.
 
     Returns:
-        pd.DataFrame: Annualized EWMA covariance matrix.
+        pd.DataFrame:  EWMA covariance matrix.
     """
     returns = returns.drop(columns=['market'], errors='ignore')
     span = 2 / (1 - lambda_) - 1
     cov_ewma = returns.ewm(span=span, adjust=True).cov().iloc[-len(returns):]
     cov_matrix = cov_ewma.loc[returns.index[-1]]
     cov_matrix = (cov_matrix + cov_matrix.T) / 2
-    cov_matrix *= days_in_sample
+    # cov_matrix *= days_in_sample
     return cov_matrix
 
 
@@ -168,8 +169,8 @@ class AssetAnalysis:
     """ Class to manipulate assets
     """
     COV_METHODS = {
-        'standard': lambda returns, days_in_sample: returns.drop(columns=['market'], errors='ignore').cov() * days_in_sample,
-        'ewma': lambda returns, days_in_sample, lambda_=0.94: get_ewma_cov_matrix(returns, lambda_, days_in_sample)
+        'standard': lambda returns: returns.drop(columns=['market'], errors='ignore').cov() ,
+        'ewma': lambda returns, lambda_=0.94: get_ewma_cov_matrix(returns, lambda_)
     }
 
     def __init__(self, csv_or_df: str | pd.DataFrame, risk_free_rate: float = 0.0, resample_size='D', cov_method: Union[str, Callable] = 'standard', lambda_: float = 0.94):
@@ -216,6 +217,7 @@ class AssetAnalysis:
             self.returns, days_in_sample=self.days_in_sample)
         self.rets_and_market = get_data_and_market(
             self.returns.copy(), self.marketret)
+        self.log_rets_and_market = np.log(1+self.rets_and_market)
         # self.cov_matrix = self.rets_and_market.drop(columns='market').cov()
         if isinstance(cov_method, str):
             if cov_method not in self.COV_METHODS:
@@ -224,14 +226,14 @@ class AssetAnalysis:
             cov_func = self.COV_METHODS[cov_method]
             if cov_method == 'ewma':
                 self.cov_matrix = cov_func(
-                    self.rets_and_market, self.days_in_sample, lambda_=self.lambda_)
+                    self.rets_and_market, lambda_=self.lambda_)
             else:
                 self.cov_matrix = cov_func(
-                    self.rets_and_market, self.days_in_sample)
+                    self.rets_and_market)
         elif callable(cov_method):
             # Custom function: must return a pd.DataFrame
             self.cov_matrix = cov_method(
-                self.rets_and_market, self.days_in_sample)
+                self.rets_and_market)
             if not isinstance(self.cov_matrix, pd.DataFrame):
                 raise ValueError(
                     "Custom cov_method must return a pandas DataFrame")
@@ -245,6 +247,7 @@ class AssetAnalysis:
         csv_path = project_root / 'data' / 'processed' / 'other' / 'players_monthly.csv'
 
         self.players = pd.read_csv(csv_path, index_col='Month')
+        self.players.index =  pd.to_datetime(self.players.index)
 
     def plot_corr_matrix(self, figure_size=(25, 15)):
         """Plots the correlation matrix only when explicitly called."""
@@ -312,16 +315,18 @@ class AssetAnalysis:
                           yaxis_title='Value', hovermode="x unified")
         fig.show()
 
-    def plot_returns_distribution(self, bins, exclude_0=1):
+    def plot_returns_distribution(self, bins, exclude_0=True,log_rets=False):
         """Interactive plot of the distribution of all asset returns.
         Args:
             bins: Number of bins for the distribution plot.
             exclude_0: 1 to exclude the returns equal to 0
         """
-
+        
         all_returns = self.returns.melt(value_name="Returns")[
             "Returns"].dropna()
-        if exclude_0 == 1:
+        if log_rets:
+            all_returns = np.log(1+ all_returns)
+        if exclude_0:
             all_returns = all_returns[all_returns != 0]
 
         #  histogram
