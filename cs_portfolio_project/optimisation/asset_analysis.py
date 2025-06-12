@@ -10,6 +10,8 @@ from plotly.subplots import make_subplots
 from typing import Union, Callable
 from cs_portfolio_project.constant import freq_to_days
 from pathlib import Path
+from sklearn import covariance, cluster, manifold
+from matplotlib.collections import LineCollection
 
 project_root = Path(__file__).resolve().parents[2]
 
@@ -165,6 +167,133 @@ def get_ewma_cov_matrix(returns, lambda_=0.94):
     return cov_matrix
 
 
+def compute_graphical_network(rets: pd.DataFrame, min_samples: int = 5) -> dict:
+    """
+    Compute clusters, partial correlations, and 2D embedding for asset returns.
+
+    Args:
+        rets (pd.DataFrame): DataFrame with asset returns, columns as assets, index as dates.
+        min_samples (int): Minimum number of non-NaN observations required per asset.
+
+    Returns:
+        dict: Dictionary containing clustering labels, partial correlations, embedding, etc.
+    """
+    X = rets.drop(columns=['market'], errors='ignore').copy()
+
+    valid_assets = X.columns[X.notna().sum() >= min_samples]
+    if len(valid_assets) < 2:
+        raise ValueError("Insufficient valid assets with enough non-NaN returns.")
+    X = X[valid_assets].dropna(how='all')
+
+    names = np.array(X.columns)
+    print('Number of assets examined:', X.shape[1])
+
+    # Standardize returns
+    X_std = X / X.std(axis=0)
+    X_std = X_std.fillna(0)
+
+    # Graphical Lasso
+    edge_model = covariance.GraphicalLassoCV(max_iter=1000)
+    edge_model.fit(X_std)
+
+    # Affinity propagation clustering
+    _, labels = cluster.affinity_propagation(edge_model.covariance_)
+
+    # MDS embedding
+    embedding = manifold.MDS(n_components=2, random_state=0).fit_transform(X_std.T).T
+
+    # Partial correlations
+    prec = edge_model.precision_.copy()
+    d = 1 / np.sqrt(np.diag(prec))
+    partial_corr = prec * d
+    partial_corr = partial_corr * d[:, np.newaxis]
+
+    return {
+        'names': names,
+        'labels': labels,
+        'partial_correlations': partial_corr,
+        'embedding': embedding,
+        'scaling_d': d,
+        'start': X.index[0],
+        'end': X.index[-1]
+    }
+
+
+def plot_graphical_network(rets: pd.DataFrame, min_samples: int = 5):
+    """
+    Plot the graphical network using the results from compute_graphical_network().
+
+    Args:
+        rets (pd.DataFrame): DataFrame with asset returns, columns as assets, index as dates.
+        min_samples (int): Minimum number of non-NaN observations required per asset.
+    """
+    results=compute_graphical_network(rets, min_samples)
+
+    names = results['names']
+    labels = results['labels']
+    partial_correlations = results['partial_correlations']
+    embedding = results['embedding']
+    d = results['scaling_d']
+    start = results['start']
+    end = results['end']
+    for i in range(max(labels)+ 1):
+        print(f'Cluster {i + 1}: {", ".join(names[labels == i])}')
+        
+    val_max = np.abs(partial_correlations[np.triu_indices_from(partial_correlations, k=1)]).max()
+    non_zero = (np.abs(np.triu(partial_correlations, k=1)) > 0.02)
+
+    n_labels = labels.max()
+    color_list = sns.color_palette("tab10", n_labels + 1)
+    my_colors = [color_list[i] for i in labels]
+
+    fig = plt.figure(figsize=(12, 6), facecolor='w')
+    plt.clf()
+    ax = plt.axes([0.05, 0.05, 0.9, 0.9])
+    plt.axis('off')
+
+    start_idx, end_idx = np.where(non_zero)
+    segments = [[embedding[:, start], embedding[:, stop]]
+                for start, stop in zip(start_idx, end_idx)]
+    values = np.abs(partial_correlations[non_zero])
+    lc = LineCollection(
+        segments,
+        zorder=0,
+        cmap=plt.cm.hot_r,
+        norm=plt.Normalize(0, 0.7 * val_max)
+    )
+    lc.set_array(values)
+    lc.set_linewidths(np.minimum(15 * values, 5))
+    ax.add_collection(lc)
+    axcb = fig.colorbar(lc)
+    axcb.set_label('Partial Correlation Strength')
+
+    plt.scatter(embedding[0], embedding[1], s=500 * d ** 2, c=my_colors, alpha=0.7)
+    for index, (name, label, (x, y)) in enumerate(zip(names, labels, embedding.T)):
+        dx = x - embedding[0]
+        dx[index] = 1
+        dy = y - embedding[1]
+        dy[index] = 1
+        this_dx = dx[np.argmin(np.abs(dy))]
+        this_dy = dy[np.argmin(np.abs(dx))]
+        ha = 'left' if this_dx > 0 else 'right'
+        va = 'bottom' if this_dy > 0 else 'top'
+        xo = 0.002 if this_dx > 0 else -0.002
+        yo = 0.002 if this_dy > 0 else -0.002
+        plt.text(
+            x + xo, y + yo, name, size=8,
+            ha=ha, va=va,
+            bbox=dict(facecolor='w', edgecolor=color_list[label], alpha=0.6)
+        )
+
+    plt.xlim(embedding[0].min() - 0.15 * np.ptp(embedding[0]),
+             embedding[0].max() + 0.10 * np.ptp(embedding[0]))
+    plt.ylim(embedding[1].min() - 0.03 * np.ptp(embedding[1]),
+             embedding[1].max() + 0.03 * np.ptp(embedding[1]))
+    title = f'Graphical Network Analysis of Assets (Returns, {start.strftime("%m/%d/%Y")} to {end.strftime("%m/%d/%Y")})'
+    plt.title(title, fontsize=12, pad=10)
+    plt.show()
+
+
 class AssetAnalysis:
     """ Class to manipulate assets
     """
@@ -244,9 +373,9 @@ class AssetAnalysis:
         self.mwp = get_minimum_var_portfolio(
             self.returns, self.marketret, self.cov_matrix, risk_free_rate, self.days_in_sample)
         self.distance_matrix = 1 - self.correlation_matrix
-        csv_path = project_root / 'data' / 'processed' / 'other' / 'players_monthly.csv'
+        csv_path_players = project_root / 'data' / 'processed' / 'other' / 'players_monthly.csv'
 
-        self.players = pd.read_csv(csv_path, index_col='Month')
+        self.players = pd.read_csv(csv_path_players, index_col='Month')
         self.players.index =  pd.to_datetime(self.players.index)
 
     def plot_corr_matrix(self, figure_size=(25, 15)):
@@ -282,37 +411,45 @@ class AssetAnalysis:
         "plot volatility of market"
         plot_volatilty(self.rets_and_market['market'], rolling_window)
 
-    def plot_price(self, name: str | list[str]):
+    def plot_price(self, name: str | list[str], logscale: bool = False, start_date: str = None):
+        """
+        Plot the price or cumulative return of assets and/or the market.
 
+        Args:
+            name (str | list[str]): Name(s) of the asset(s) to plot. Can include 'market'.
+            logscale (bool): Whether to use a logarithmic scale for the y-axis.
+            start_date (str): Optional. A date string (e.g., '2022-01-01') to start plotting from.
+        """
         fig = go.Figure()
 
         if isinstance(name, str):
-            if name == 'market':
-                cumulative_returns = (
-                    1 + self.rets_and_market['market']).cumprod()
+            name = [name]
+
+        data = self.data.copy()
+        rets_market = self.rets_and_market.copy()
+
+        if start_date is not None:
+            data = data.loc[data.index >= start_date]
+            rets_market = rets_market.loc[rets_market.index >= start_date]
+
+        for asset in name:
+            if asset in data.columns:
+                fig.add_trace(go.Scatter(x=data.index, y=data[asset],
+                                        mode='lines+markers', name=asset))
+            elif asset == 'market':
+                cumulative_returns = (1 + rets_market['market']).cumprod()
                 fig.add_trace(go.Scatter(x=cumulative_returns.index, y=cumulative_returns,
-                                         mode='lines+markers', name='Market'))
+                                        mode='lines+markers', name='Market'))
             else:
-                fig.add_trace(go.Scatter(x=self.data.index, y=self.data[name],
-                                         mode='lines+markers', name=name))
+                print(f"Warning: {asset} not found in data")
 
-        elif isinstance(name, list):
-            for asset in name:
+        fig.update_layout(
+            xaxis_title='Date',
+            yaxis_title='Value',
+            hovermode="x unified",
+            yaxis_type='log' if logscale else 'linear'
+        )
 
-                if asset in self.data.columns:
-                    fig.add_trace(go.Scatter(x=self.data.index, y=self.data[asset],
-                                             mode='lines+markers', name=asset))
-                    current_price = self.data[asset][0]
-                elif asset == 'market':
-                    cumulative_returns = (
-                        1 + self.rets_and_market['market']).cumprod()*current_price
-                    fig.add_trace(go.Scatter(x=cumulative_returns.index, y=cumulative_returns,
-                                             mode='lines+markers', name='Market'))
-                else:
-                    print(f"Warning: {asset} not found in data")
-
-        fig.update_layout(xaxis_title='Date',
-                          yaxis_title='Value', hovermode="x unified")
         fig.show()
 
     def plot_returns_distribution(self, bins, exclude_0=True,log_rets=False):
@@ -351,7 +488,7 @@ class AssetAnalysis:
         print(
             f'skewness={all_returns.skew()}, kurtosis={all_returns.kurtosis()}')
 
-    def Kmeans_PCA_plot(self, n_clusters):
+    def Kmeans_PCA_plot(self, n_clusters:int):
         # Reduce dimensionality with PCA
         clusters = kmean_clustering(n_clusters, self.distance_matrix)
         pca = PCA(n_components=2)
@@ -371,3 +508,6 @@ class AssetAnalysis:
     def plot_players(self, asset='market', log=0):
         plot_players_and_asset(
             self.players['Change_pct'], self.rets_and_market[asset], log)
+        
+    def plot_graphical_network_assets(self,start_date:str):
+        plot_graphical_network(self.returns[start_date:])

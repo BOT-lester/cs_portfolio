@@ -40,6 +40,24 @@ def find_portfolio_value(skins: list, quantity: list, asset_prices: pd.DataFrame
     return find_portfolio_weights_and_value(skins, quantity, asset_prices)[1]
 
 
+def plot_portfolio_pie(weights: pd.Series,figure_size:tuple=(8,8)):
+    """
+    Plot a pie chart of portfolio allocation by asset weights.
+
+    Args:
+        weights (pd.Series): Portfolio weights, index as asset names.
+        title (str): Title of the pie chart.
+
+    Returns:
+        None
+    """
+    nonzero_weights = weights[weights > 0]
+    plt.figure(figsize=figure_size)
+    plt.pie(nonzero_weights, labels=nonzero_weights.index, autopct='%1.1f%%', startangle=140)
+    plt.title("Portfolio Allocation")
+    plt.axis('equal')  
+    plt.show()
+
 def monte_carlo_simulation(expected_rets, cov_matrix, weights, initial_portfolio_value, number_of_sims=100, sim_timeframe=365, log=True):
 
     rets = expected_rets.values

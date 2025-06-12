@@ -226,6 +226,16 @@ def kmean_clustering(n_clusters, distance_matrix):
     clusters = kmeans.fit_predict(distance_matrix)
     return clusters
 
+def get_equal_weight_pf(rets: pd.DataFrame)->pd.Series:
+    """ get the equal weights portfolio variance portofilio composition
+    Args:
+        rets (pd.DataFrame): DataFrame with asset returns of the assets in the portfolio
+    returns:
+        pd.Series: portfolio weights
+    """
+    n_assets = len(rets.columns)
+    weights = np.array([1/n_assets] * n_assets)
+    return pd.Series(index=rets.columns,data=weights)
 
 def get_mvp(rets: pd.DataFrame, min_vol_threshold=1e-6):
     """ find the minimum variance portofilio compisition
