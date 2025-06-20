@@ -91,19 +91,28 @@ def get_price_history(appid, market_hash_name, cookies):
 
 appid = 730 #csgo
 
-market_hash_name_list = cases
+market_hash_name_list = agent_skins
 
 
 def save_csv_from_list(market_hash_name_list):
-    
+    failed_items = []
     for item in market_hash_name_list:
-        df_item = get_price_history(appid, item, cookies)
-        df_item=df_item[df_item['date']>= min(df_item['date']) + timedelta(days=60)]
-        filename =f"{item.replace(' ', '_').replace(':', '').replace('/', '_').replace('(', '').replace(')', '')}_price.csv"
-        output_dir = os.path.join("data", "raw", "market_prices", "cases")
-        os.makedirs(output_dir, exist_ok=True)
-        df_item.to_csv(os.path.join(output_dir, filename.lower()))
 
+        df_item = get_price_history(appid, item, cookies)
+        # print(df_item)
+        # break
+        if df_item is not None and not df_item.empty:
+
+            df_item=df_item[df_item['date']>= min(df_item['date']) + timedelta(days=60)]
+            filename =f"{item.replace(' | ','_').replace(' ', '_').replace(':', '').replace('/', '_').replace('(', '').replace(')', '')}_price.csv"
+            print(filename)
+            output_dir = os.path.join("data", "raw", "market_prices", "agents")
+            os.makedirs(output_dir, exist_ok=True)
+            df_item.to_csv(os.path.join(output_dir, filename.lower()))
+        else:
+            print(f"Skipping {item} due to no data.")
+            failed_items.append(item)
+    print(failed_items)
 
 save_csv_from_list(market_hash_name_list)
 

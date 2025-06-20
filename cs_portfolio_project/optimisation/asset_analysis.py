@@ -395,7 +395,7 @@ class AssetAnalysis:
         """
         effective_risk_free_rate = self.risk_free_rate if risk_free_rate is None else risk_free_rate
         plot_efficient_frontier_2(
-            self.rets_and_market, n_points, effective_risk_free_rate)
+            self.returns,self.marketret,self.cov_matrix, n_points, effective_risk_free_rate)
 
     def plot_corr_with_market(self):
         correlation = self.rets_and_market.corr(

@@ -4,6 +4,8 @@ from datetime import datetime, timedelta
 import time
 import os
 from cs_portfolio_project.data_extraction.skins_lists import *
+from dotenv import load_dotenv
+load_dotenv()
 
 def get_price_history(appid, market_hash_name, cookies, retries=2):
     """Fetch price history from Steam Market API with retry for name variations."""
@@ -76,6 +78,8 @@ def save_csv_from_skin_list(skin_list:list, cookies:dict, skin_list_name:str, ap
                 df_item = df_item[df_item['date'] >= df_item['date'].min() + timedelta(days=60)]
                 df_item['date'] = df_item['date'].apply(lambda x: x.strftime("%Y-%m-%d %H:%M:%S %z"))
                 filename = f"{successful_name.replace(' | ', '_').replace(' ', '_')}_price_history.csv"
+                # output_dir = os.path.join("data", "raw", "market_prices", "agents")
+                # os.makedirs(output_dir, exist_ok=True)
                 df_item.to_csv(os.path.join(output_dir, filename.lower()), index=False)
                 print(f"Saved data to {os.path.join(output_dir, filename)}")
             else:
@@ -91,7 +95,7 @@ def save_csv_from_skin_list(skin_list:list, cookies:dict, skin_list_name:str, ap
         print("\nCheck names manually on Steam Market and update the list if needed.")
 
 # Example list of skins 
-skin_list = ancien_collection_list
+skin_list = agent_skins
 
 #cookies
 cookies = {

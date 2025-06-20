@@ -179,17 +179,17 @@ def plot_efficient_frontier(eff_returns, eff_volatilities, market_vol, market_re
     plt.show()
 
 
-def plot_efficient_frontier_2(rets, market_rets, n_points=50, risk_free_rate=0.0):
+def plot_efficient_frontier_2(rets, market_rets,cov_matrix, n_points=50, risk_free_rate=0.0):
     """
     market_vol = returns['market'].std()
     """
 
     eff_returns, eff_volatilities = get_efficient_frontier(
-        rets, market_rets, n_points, risk_free_rate)
+        rets, market_rets,cov_matrix, n_points, risk_free_rate)
     market_vol, market_ret = market_rets.std(
     ), market_rets.mean()
 
-    cov_matrix = rets.cov()
+    # cov_matrix = rets.cov()
     expected_returns = get_expected_returns_CAPM(
         rets, market_rets, risk_free_rate)
 
