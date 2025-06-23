@@ -179,13 +179,13 @@ def plot_efficient_frontier(eff_returns, eff_volatilities, market_vol, market_re
     plt.show()
 
 
-def plot_efficient_frontier_2(rets, market_rets,cov_matrix, n_points=50, risk_free_rate=0.0):
+def plot_efficient_frontier_2(rets, market_rets, cov_matrix, n_points=50, risk_free_rate=0.0):
     """
     market_vol = returns['market'].std()
     """
 
     eff_returns, eff_volatilities = get_efficient_frontier(
-        rets, market_rets,cov_matrix, n_points, risk_free_rate)
+        rets, market_rets, cov_matrix, n_points, risk_free_rate)
     market_vol, market_ret = market_rets.std(
     ), market_rets.mean()
 
@@ -226,7 +226,8 @@ def kmean_clustering(n_clusters, distance_matrix):
     clusters = kmeans.fit_predict(distance_matrix)
     return clusters
 
-def get_equal_weight_pf(rets: pd.DataFrame)->pd.Series:
+
+def get_equal_weight_pf(rets: pd.DataFrame) -> pd.Series:
     """ get the equal weights portfolio variance portofilio composition
     Args:
         rets (pd.DataFrame): DataFrame with asset returns of the assets in the portfolio
@@ -235,7 +236,8 @@ def get_equal_weight_pf(rets: pd.DataFrame)->pd.Series:
     """
     n_assets = len(rets.columns)
     weights = np.array([1/n_assets] * n_assets)
-    return pd.Series(index=rets.columns,data=weights)
+    return pd.Series(index=rets.columns, data=weights)
+
 
 def get_mvp(rets: pd.DataFrame, min_vol_threshold=1e-6):
     """ find the minimum variance portofilio compisition
@@ -276,7 +278,7 @@ def get_mvp(rets: pd.DataFrame, min_vol_threshold=1e-6):
     return gmv_weights
 
 
-def get_mvp(rets: pd.DataFrame, cov_matrix, min_vol_threshold=1e-6)->pd.Series:
+def get_mvp(rets: pd.DataFrame, cov_matrix, min_vol_threshold=1e-6) -> pd.Series:
     """ find the minimum variance portofilio compisition
     Args:
         rets (pd.DataFrame): DataFrame with asset returns 
@@ -551,7 +553,7 @@ def plot_backtest_vs_eq(
     rebalancing: str = 'YE',
     risk_free_rate: float = 0.0,
     days_in_sample: int = 365,
-    **weight_func_kwargs: Any
+    **func_kwargs: Any
 ) -> None:
     """
     Plot the log-scale performance of a backtested portfolio against an equal-weighted market portfolio.
@@ -563,7 +565,7 @@ def plot_backtest_vs_eq(
         rebalancing (str): Rebalancing frequency ('M', 'Y', etc.).
         risk_free_rate (float): Risk-free rate.
         days_in_sample (int): Number of days to annualize.
-        **weight_func_kwargs: Additional arguments for weight_func.
+        **func_kwargs: Additional arguments for weight (weight_func_kwargs=dict) , covariance (covariance_kwargs=dict= and expected returns functions(expected_returns_kwargs=dict). 
 
     """
     backtest_results = backtest(
@@ -572,7 +574,7 @@ def plot_backtest_vs_eq(
         rebalancing=rebalancing,
         risk_free_rate=risk_free_rate,
         days_in_sample=days_in_sample,
-        **weight_func_kwargs
+        **func_kwargs
     )
 
     plt.figure(figsize=(12, 6))

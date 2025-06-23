@@ -67,7 +67,6 @@ def mdd(x):
     return drawdown.min()
 
 
-
 def asset_information(returns, days_in_sample=365):
     """ compute total returns, avg returns (daily and ann), std (ann), max draw down """
     df = pd.DataFrame(index=returns.columns)
@@ -167,6 +166,43 @@ def get_ewma_cov_matrix(returns, lambda_=0.94):
     return cov_matrix
 
 
+def get_constant_corr_covmatrix(returns):
+    """
+    Estimates a covariance matrix by using the Elton/Gruber Constant Correlation model
+    """
+    rhos = returns.corr()
+    n = rhos.shape[0]
+    rho_bar = (rhos.values.sum()-n)/(n*(n-1))
+    ccor = np.full_like(rhos, rho_bar)
+    np.fill_diagonal(ccor, 1.)
+    sd = returns.std()
+    ccov = ccor * np.outer(sd, sd) 
+#     mh.corr2cov(ccor, sd)
+    return pd.DataFrame(ccov, index=returns.columns, columns=returns.columns)
+
+
+def get_shrunk_covariance_matrix(returns: pd.DataFrame, shrinkage_matrix: pd.DataFrame = None, lambda_=0.5):
+    """
+    Compute the shrunk covariance matrix, lambda = 0 for shrunk matrix, lambda = 1 for sample covariance matrix.
+
+    Args:
+        returns (pd.DataFrame): Returns data, columns are assets.
+        shrinkage_matrix: shrinkage matrix (ex: Elton/Gruber Constant Correlation matrix, default is identity matrix)
+        lambda_ (float): shrinkage factor (0 < lambda_ < 1, default 0.5).
+
+    Returns:
+        pd.DataFrame:  shrunk covariance matrix.
+    """
+    n = len(returns.columns)
+    if shrinkage_matrix is None:
+        shrinkage_matrix = np.identity(n)
+
+    returns = returns.drop(columns=['market'], errors='ignore')
+
+    cov = returns.cov()
+    return lambda_*cov + (1-lambda_)*shrinkage_matrix
+
+
 def compute_graphical_network(rets: pd.DataFrame, min_samples: int = 5) -> dict:
     """
     Compute clusters, partial correlations, and 2D embedding for asset returns.
@@ -182,7 +218,8 @@ def compute_graphical_network(rets: pd.DataFrame, min_samples: int = 5) -> dict:
 
     valid_assets = X.columns[X.notna().sum() >= min_samples]
     if len(valid_assets) < 2:
-        raise ValueError("Insufficient valid assets with enough non-NaN returns.")
+        raise ValueError(
+            "Insufficient valid assets with enough non-NaN returns.")
     X = X[valid_assets].dropna(how='all')
 
     names = np.array(X.columns)
@@ -200,7 +237,8 @@ def compute_graphical_network(rets: pd.DataFrame, min_samples: int = 5) -> dict:
     _, labels = cluster.affinity_propagation(edge_model.covariance_)
 
     # MDS embedding
-    embedding = manifold.MDS(n_components=2, random_state=0).fit_transform(X_std.T).T
+    embedding = manifold.MDS(
+        n_components=2, random_state=0).fit_transform(X_std.T).T
 
     # Partial correlations
     prec = edge_model.precision_.copy()
@@ -227,7 +265,7 @@ def plot_graphical_network(rets: pd.DataFrame, min_samples: int = 5):
         rets (pd.DataFrame): DataFrame with asset returns, columns as assets, index as dates.
         min_samples (int): Minimum number of non-NaN observations required per asset.
     """
-    results=compute_graphical_network(rets, min_samples)
+    results = compute_graphical_network(rets, min_samples)
 
     names = results['names']
     labels = results['labels']
@@ -236,10 +274,11 @@ def plot_graphical_network(rets: pd.DataFrame, min_samples: int = 5):
     d = results['scaling_d']
     start = results['start']
     end = results['end']
-    for i in range(max(labels)+ 1):
+    for i in range(max(labels) + 1):
         print(f'Cluster {i + 1}: {", ".join(names[labels == i])}')
-        
-    val_max = np.abs(partial_correlations[np.triu_indices_from(partial_correlations, k=1)]).max()
+
+    val_max = np.abs(partial_correlations[np.triu_indices_from(
+        partial_correlations, k=1)]).max()
     non_zero = (np.abs(np.triu(partial_correlations, k=1)) > 0.02)
 
     n_labels = labels.max()
@@ -267,7 +306,8 @@ def plot_graphical_network(rets: pd.DataFrame, min_samples: int = 5):
     axcb = fig.colorbar(lc)
     axcb.set_label('Partial Correlation Strength')
 
-    plt.scatter(embedding[0], embedding[1], s=500 * d ** 2, c=my_colors, alpha=0.7)
+    plt.scatter(embedding[0], embedding[1], s=500 *
+                d ** 2, c=my_colors, alpha=0.7)
     for index, (name, label, (x, y)) in enumerate(zip(names, labels, embedding.T)):
         dx = x - embedding[0]
         dx[index] = 1
@@ -298,8 +338,11 @@ class AssetAnalysis:
     """ Class to manipulate assets
     """
     COV_METHODS = {
-        'standard': lambda returns: returns.drop(columns=['market'], errors='ignore').cov() ,
-        'ewma': lambda returns, lambda_=0.94: get_ewma_cov_matrix(returns, lambda_)
+        'standard': lambda returns: returns.drop(columns=['market'], errors='ignore').cov(),
+        'ewma': lambda returns, lambda_=0.94: get_ewma_cov_matrix(returns, lambda_),
+        'shrunk_id': lambda returns, lambda_=0.5: get_shrunk_covariance_matrix(returns, None, lambda_),
+        'shrunk_constant_corr': lambda returns, lambda_=0.5: get_shrunk_covariance_matrix(returns, get_constant_corr_covmatrix(returns), lambda_)
+
     }
 
     def __init__(self, csv_or_df: str | pd.DataFrame, risk_free_rate: float = 0.0, resample_size='D', cov_method: Union[str, Callable] = 'standard', lambda_: float = 0.94):
@@ -310,7 +353,7 @@ class AssetAnalysis:
             csv_or_df: Path to CSV file or pandas DataFrame.
             risk_free_rate: Risk-free rate for return calculations.
             resample_size: Frequency for resampling ('D' for daily, etc.).
-            cov_method: Method for covariance calculation ('standard', 'ewma', or custom function).
+            cov_method: Method for covariance calculation ('standard', 'ewma','shrunk_id', 'shrunk_constant_corr', or custom function).
             lambda_: Decay factor for EWMA covariance (if applicable, default 0.94).
         """
         self.days_in_sample = freq_to_days[resample_size]
@@ -356,6 +399,13 @@ class AssetAnalysis:
             if cov_method == 'ewma':
                 self.cov_matrix = cov_func(
                     self.rets_and_market, lambda_=self.lambda_)
+            elif cov_method == 'shrunk_id':
+                self.cov_matrix = cov_func(
+                    self.returns, lambda_=self.lambda_)
+            elif cov_method == 'shrunk_constant_corr':
+                self.cov_matrix = cov_func(
+                    self.returns, lambda_=self.lambda_)
+
             else:
                 self.cov_matrix = cov_func(
                     self.rets_and_market)
@@ -373,10 +423,11 @@ class AssetAnalysis:
         self.mwp = get_minimum_var_portfolio(
             self.returns, self.marketret, self.cov_matrix, risk_free_rate, self.days_in_sample)
         self.distance_matrix = 1 - self.correlation_matrix
-        csv_path_players = project_root / 'data' / 'processed' / 'other' / 'players_monthly.csv'
+        csv_path_players = project_root / 'data' / \
+            'processed' / 'other' / 'players_monthly.csv'
 
         self.players = pd.read_csv(csv_path_players, index_col='Month')
-        self.players.index =  pd.to_datetime(self.players.index)
+        self.players.index = pd.to_datetime(self.players.index)
 
     def plot_corr_matrix(self, figure_size=(25, 15)):
         """Plots the correlation matrix only when explicitly called."""
@@ -395,7 +446,7 @@ class AssetAnalysis:
         """
         effective_risk_free_rate = self.risk_free_rate if risk_free_rate is None else risk_free_rate
         plot_efficient_frontier_2(
-            self.returns,self.marketret,self.cov_matrix, n_points, effective_risk_free_rate)
+            self.returns, self.marketret, self.cov_matrix, n_points, effective_risk_free_rate)
 
     def plot_corr_with_market(self):
         correlation = self.rets_and_market.corr(
@@ -435,11 +486,11 @@ class AssetAnalysis:
         for asset in name:
             if asset in data.columns:
                 fig.add_trace(go.Scatter(x=data.index, y=data[asset],
-                                        mode='lines+markers', name=asset))
+                                         mode='lines+markers', name=asset))
             elif asset == 'market':
                 cumulative_returns = (1 + rets_market['market']).cumprod()
                 fig.add_trace(go.Scatter(x=cumulative_returns.index, y=cumulative_returns,
-                                        mode='lines+markers', name='Market'))
+                                         mode='lines+markers', name='Market'))
             else:
                 print(f"Warning: {asset} not found in data")
 
@@ -452,17 +503,17 @@ class AssetAnalysis:
 
         fig.show()
 
-    def plot_returns_distribution(self, bins, exclude_0=True,log_rets=False):
+    def plot_returns_distribution(self, bins, exclude_0=True, log_rets=False):
         """Interactive plot of the distribution of all asset returns.
         Args:
             bins: Number of bins for the distribution plot.
             exclude_0: 1 to exclude the returns equal to 0
         """
-        
+
         all_returns = self.returns.melt(value_name="Returns")[
             "Returns"].dropna()
         if log_rets:
-            all_returns = np.log(1+ all_returns)
+            all_returns = np.log(1 + all_returns)
         if exclude_0:
             all_returns = all_returns[all_returns != 0]
 
@@ -488,7 +539,7 @@ class AssetAnalysis:
         print(
             f'skewness={all_returns.skew()}, kurtosis={all_returns.kurtosis()}')
 
-    def Kmeans_PCA_plot(self, n_clusters:int):
+    def Kmeans_PCA_plot(self, n_clusters: int):
         # Reduce dimensionality with PCA
         clusters = kmean_clustering(n_clusters, self.distance_matrix)
         pca = PCA(n_components=2)
@@ -508,6 +559,6 @@ class AssetAnalysis:
     def plot_players(self, asset='market', log=0):
         plot_players_and_asset(
             self.players['Change_pct'], self.rets_and_market[asset], log)
-        
-    def plot_graphical_network_assets(self,start_date:str):
+
+    def plot_graphical_network_assets(self, start_date: str):
         plot_graphical_network(self.returns[start_date:])
