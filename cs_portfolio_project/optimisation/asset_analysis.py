@@ -4,6 +4,7 @@ import os
 import matplotlib.pyplot as plt
 import seaborn as sns
 from cs_portfolio_project.optimisation.portfolio import *
+from cs_portfolio_project.optimisation.time_series import *
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -359,6 +360,7 @@ class AssetAnalysis:
         self.days_in_sample = freq_to_days[resample_size]
         self.risk_free_rate = risk_free_rate
         self.lambda_ = lambda_
+        
         if isinstance(csv_or_df, str):
             # If a string (file path) is provided, load the CSV file
             self.data = pd.read_csv(
@@ -389,6 +391,7 @@ class AssetAnalysis:
             self.returns, days_in_sample=self.days_in_sample)
         self.rets_and_market = get_data_and_market(
             self.returns.copy(), self.marketret)
+        self.market_price = (1 + self.marketret).cumprod()
         self.log_rets_and_market = np.log(1+self.rets_and_market)
         # self.cov_matrix = self.rets_and_market.drop(columns='market').cov()
         if isinstance(cov_method, str):
@@ -447,6 +450,30 @@ class AssetAnalysis:
         effective_risk_free_rate = self.risk_free_rate if risk_free_rate is None else risk_free_rate
         plot_efficient_frontier_2(
             self.returns, self.marketret, self.cov_matrix, n_points, effective_risk_free_rate)
+
+    def plot_market_decompose(self,data_type:str,model:str):
+        """Plot the market time series decomposition. Checks for stationarity, if p-value <0.05, time series is likely stationary
+
+        Args:
+            data_type (str): 'price' or 'returns'.
+            model (str): 'additive' or 'multiplicative'.
+        """
+        if data_type == 'price':
+            plot_time_series_decompose(self.market_price,model,self.days_in_sample)
+        elif data_type == 'returns':
+            plot_time_series_decompose(self.marketret,model,self.days_in_sample)
+            
+    def plot_market_ACF_PACF(self,data_type:str,lags=20):
+        """Plot the market time series decomposition.
+
+        Args:
+            data_type (str): 'price' or 'returns'.
+            model (str): 'additive' or 'multiplicative'.
+        """
+        if data_type == 'price':
+            plot_ACF_and_PACF(self.market_price,lags)
+        elif data_type == 'returns':
+            plot_ACF_and_PACF(self.marketret,lags)
 
     def plot_corr_with_market(self):
         correlation = self.rets_and_market.corr(
