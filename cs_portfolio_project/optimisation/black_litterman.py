@@ -4,9 +4,11 @@ import numpy as np
 from cs_portfolio_project.optimisation.asset_analysis import portfolio_return, portfolio_volatility, minimize_volatility
 from scipy.optimize import minimize
 import matplotlib.pyplot as plt
+from cs_portfolio_project.config import config 
 
-
-def get_bl_delta(rets, rf=0):
+def get_bl_delta(rets, rf=None):
+    if rf is None:
+        rf = config.RISK_FREE_RATE
     return (rets.mean()-rf)/rets.var()
 
 
@@ -124,7 +126,7 @@ def bl(w_prior, sigma_prior, p, q, omega=None, delta=2.5, tau=0.02):
     return mu_bl, sigma_bl
 
 
-def get_bl_mu_and_sigma(rets: pd.DataFrame, outperforming_assets: list, outperformance_values: list, rf=0, weights=None, delta=None, tau=None, omega=None, market_rets=None):
+def get_bl_mu_and_sigma(rets: pd.DataFrame, outperforming_assets: list, outperformance_values: list, rf=None, weights=None, delta=None, tau=None, omega=None, market_rets=None):
     """Compute BL return (mu) and cov matrixe (sigma)
     Args:
         rets: returns of the assets
@@ -136,6 +138,11 @@ def get_bl_mu_and_sigma(rets: pd.DataFrame, outperforming_assets: list, outperfo
     output:
         mu_bl, sigma_bl
     """
+    #config 
+    if rf is None:
+        rf = config.RISK_FREE_RATE
+
+
     if delta == None:
         delta = get_bl_delta(market_rets, rf)
     if tau == None:

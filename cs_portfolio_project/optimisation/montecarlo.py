@@ -3,6 +3,7 @@ import pandas as pd
 
 from typing import Callable, Dict, Any, Optional
 import matplotlib.pyplot as plt
+from cs_portfolio_project.config import config  
 
 
 def find_portfolio_weights_and_value(skins: list, quantity: list, asset_prices: pd.DataFrame):
@@ -58,7 +59,12 @@ def plot_portfolio_pie(weights: pd.Series,figure_size:tuple=(8,8)):
     plt.axis('equal')  
     plt.show()
 
-def monte_carlo_simulation(expected_rets, cov_matrix, weights, initial_portfolio_value, number_of_sims=100, sim_timeframe=365, log=True):
+def monte_carlo_simulation(expected_rets, cov_matrix, weights, initial_portfolio_value, number_of_sims=None, sim_timeframe=None, log=True):
+    # config
+    if number_of_sims is None:
+        number_of_sims = config.DEFAULT_SIMULATIONS
+    if sim_timeframe is None:
+        sim_timeframe = config.DEFAULT_TIMEFRAME
 
     rets = expected_rets.values
     cov = cov_matrix.values
@@ -83,11 +89,12 @@ def monte_carlo_simulation(expected_rets, cov_matrix, weights, initial_portfolio
     return portfolio_sims
 
 
-def mcVaR(returns, alpha=5):
+def mcVaR(returns, alpha=None):
     """ Input: pandas series of returns
         Output: percentile on return distribution to a given confidence level alpha
     """
-
+    if alpha is None:
+        alpha = config.CONFIDENCE_LEVEL * 100
     return np.percentile(returns, alpha)
 
 
@@ -135,8 +142,8 @@ def simulate_portfolio_performance(
     rets: pd.DataFrame,
     weight_func: Callable,
     initial_portfolio_value,
-    number_of_sims=100,
-    sim_timeframe=365,
+    number_of_sims=None,
+    sim_timeframe=None,
     log=True,
     expected_returns_func: Optional[Callable] = None,
     covariance_func: Optional[Callable] = None,
@@ -176,6 +183,12 @@ def simulate_portfolio_performance(
         - All simulated portfolio paths.
         - Histogram of final simulated portfolio values.
     """
+    # config 
+    if number_of_sims is None:
+        number_of_sims = config.DEFAULT_SIMULATIONS
+    if sim_timeframe is None:
+        sim_timeframe = config.DEFAULT_TIMEFRAME
+    
     rets_copy = rets.copy()
     expected_returns = None
     if expected_returns_func:
@@ -202,6 +215,7 @@ def simulate_portfolio_performance(
     value_at_risk_5_pct = np.percentile(portfolio_sims_last, 5)
     prob_loss = np.mean(portfolio_sims_last < initial_portfolio_value)
 
+    # sumary
     sim_information = {
         'mean_portfolio_value': mean_portfolio_value,
         'median_portfolio_value': median_portfolio_value,
