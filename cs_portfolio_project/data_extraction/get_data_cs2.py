@@ -18,7 +18,6 @@ load_dotenv()
 #     "sessionid": os.getenv("SESSIONID"),
 #     "steamLoginSecure": os.getenv("STEAMLOGINSECURE")
 # }
-cookies = config.get_steam_cookies() 
 
 def get_price_history(appid, market_hash_name, cookies):
     """
@@ -97,6 +96,8 @@ market_hash_name_list = agent_skins
 
 
 def save_csv_from_list(market_hash_name_list):
+    cookies = config.get_steam_cookies() 
+
     failed_items = []
     for item in market_hash_name_list:
 
@@ -111,7 +112,7 @@ def save_csv_from_list(market_hash_name_list):
 
             # output_dir = os.path.join("data", "raw", "market_prices", "agents")
             output_dir = config.get_data_path("agents")
-            
+
             os.makedirs(output_dir, exist_ok=True)
             df_item.to_csv(os.path.join(output_dir, filename.lower()))
         else:

@@ -98,10 +98,12 @@ def mcVaR(returns, alpha=None):
     return np.percentile(returns, alpha)
 
 
-def mcCVaR(returns, alpha=5):
+def mcCVaR(returns, alpha=None):
     """ Input: pandas series of returns
         Output: CVaR or Expected Shortfall to a given confidence level alpha
     """
+    if alpha is None:
+        alpha = config.CONFIDENCE_LEVEL * 100
     belowVaR = returns <= mcVaR(returns, alpha=alpha)
     return returns[belowVaR].mean()
 

@@ -43,7 +43,10 @@ def get_alpha_and_beta(rets, market_rets):
     return results_CAPM
 
 
-def get_expected_returns_CAPM(rets, market_rets, risk_free_rate=0.0):
+def get_expected_returns_CAPM(rets, market_rets, risk_free_rate=None):
+    if risk_free_rate==None:
+        risk_free_rate=config.RISK_FREE_RATE
+        
     expected_market_return = market_rets.mean()
     capm_results = get_alpha_and_beta(rets, market_rets).set_index('Asset')
 
@@ -312,29 +315,31 @@ def get_mvp(rets: pd.DataFrame, cov_matrix, min_vol_threshold=None) -> pd.Series
     if filtered_rets.empty:
         print("No assets meet the volatility criteria.")
         return None
+    filtered_assets = filtered_rets.columns
+    filtered_cov_matrix = cov_matrix.loc[filtered_assets, filtered_assets]
 
     # cov_matrix = cov_matrix.dropna(how='all').dropna(axis=1)
-    n_assets = len(cov_matrix)
+    n_assets = len(filtered_cov_matrix)
     initial_weights = np.array([1/n_assets] * n_assets)
     bounds = tuple((0, 1) for _ in range(n_assets))
     gmv_result = minimize(
         minimize_volatility,
         initial_weights,
-        args=(cov_matrix,),
+        args=(filtered_cov_matrix,),
         method='SLSQP',
         bounds=bounds,
         constraints=[{'type': 'eq', 'fun': lambda w: np.sum(w) - 1}]
     )
 
-    gmv_weights = pd.Series(index=cov_matrix.columns, data=gmv_result.x)
+    gmv_weights = pd.Series(index=filtered_cov_matrix.columns, data=gmv_result.x)
     return gmv_weights
 
 
 def get_max_sharpe_portfolio(
     rets: pd.DataFrame,
-    risk_free_rate: float = 0.0,
-    days_in_sample: int = 365,
-    min_vol_threshold: float = 1e-6,
+    risk_free_rate: float =None,
+    days_in_sample: int = None,
+    min_vol_threshold: float = None,
     expected_returns: Optional[pd.Series] = None,
     cov_matrix: Optional[pd.DataFrame] = None
 ) -> pd.Series:
@@ -372,7 +377,7 @@ def get_max_sharpe_portfolio(
     # Compute expected returns and cov matrix if not provided
     if expected_returns is None:
         # arithmetic annualization for markowitz
-        expected_returns = filtered_rets.mean() * days_in_sample
+        expected_returns = filtered_rets.mean() # * days_in_sample
     else:
         expected_returns = expected_returns.loc[valid_assets]
 
