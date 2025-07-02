@@ -9,11 +9,12 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from typing import Union, Callable
-from cs_portfolio_project.constant import freq_to_days
+# from cs_portfolio_project.constant import freq_to_days
 from pathlib import Path
 from sklearn import covariance, cluster, manifold
 from matplotlib.collections import LineCollection
-
+from cs_portfolio_project.config import config  
+import yfinance as yf
 project_root = Path(__file__).resolve().parents[2]
 
 
@@ -334,6 +335,27 @@ def plot_graphical_network(rets: pd.DataFrame, min_samples: int = 5):
     plt.title(title, fontsize=12, pad=10)
     plt.show()
 
+def detect_if_traded_weekdays(asset_prices:pd.DataFrame):
+    """ returns True is any of the assets in traded only on weekdays
+    """
+    for asset in asset_prices.columns:
+        max_day = asset_prices[asset].dropna().index.day_of_week.max()
+        if max_day==4:
+            return True
+    return False
+
+def get_additional_data(skins_price_data,additional_asset_names:list,start_date,end_date):
+    """ download and merge additional financial data to a previous price dataframe (ex: 'BTC-USD','ES=F')
+        Also returns True if any of the assets are traded only on business days
+    """
+    additiona_price_data=yf.download(additional_asset_names, start=start_date, end=end_date
+                   )['Close']
+    price_data_updated=pd.concat([skins_price_data , additiona_price_data],axis=1)
+    if detect_if_traded_weekdays(additiona_price_data):
+        traded_business_days=True
+    else: 
+        traded_business_days=False
+    return price_data_updated,traded_business_days
 
 class AssetAnalysis:
     """ Class to manipulate assets
@@ -346,7 +368,7 @@ class AssetAnalysis:
 
     }
 
-    def __init__(self, csv_or_df: str | pd.DataFrame, risk_free_rate: float = 0.0, resample_size='D', cov_method: Union[str, Callable] = 'standard', lambda_: float = 0.94):
+    def __init__(self, csv_or_df: str | pd.DataFrame, risk_free_rate: float = 0.0, resample_size='D', cov_method: Union[str, Callable] = 'standard', lambda_: float = 0.94,additional_asset_names:list[str]=None,additional_asset_names_start_end_data:list[str,str]=None):
         """
         Initializes the class by loading data and computing necessary values.
 
@@ -356,8 +378,8 @@ class AssetAnalysis:
             resample_size: Frequency for resampling ('D' for daily, etc.).
             cov_method: Method for covariance calculation ('standard', 'ewma','shrunk_id', 'shrunk_constant_corr', or custom function).
             lambda_: Decay factor for EWMA covariance (if applicable, default 0.94).
+            additional_asset_names: list[str] financial data to be download and added (ex: ['BTC-USD','ES=F']) (not taken into account for 'market' data calculation)
         """
-        self.days_in_sample = freq_to_days[resample_size]
         self.risk_free_rate = risk_free_rate
         self.lambda_ = lambda_
         
@@ -377,16 +399,39 @@ class AssetAnalysis:
         else:
             raise ValueError(
                 "Data must be a file path (str) or a pandas DataFrame.")
+        
 
-        # self.data = pd.read_csv(csv_file, index_col='date', parse_dates=True)
-        if resample_size == 'D':
-            self.returns = self.data.pct_change().dropna(how='all')
+        self.skins_names = self.data.columns
+
+        if additional_asset_names is not None: # if additional assets are provided
+            
+            additional_data = get_additional_data(self.data,additional_asset_names,start_date=additional_asset_names_start_end_data[0],end_date=additional_asset_names_start_end_data[1])
+            self.data = additional_data[0]
+            is_traded_daily = additional_data[1]
+
+            # Determine resample frequency
+            if is_traded_daily and resample_size in ['B', 'D']:
+                effective_resample_size = 'B'
+            else:
+                effective_resample_size = resample_size
 
         else:
-            self.returns = ((self.data.pct_change().dropna(
-                how='all')+1).resample(resample_size).prod()-1).replace(0, np.nan)
+            effective_resample_size = resample_size
 
-        self.marketret = calculate_market_returns(self.returns)
+        # Compute returns based on effective resample size
+        if effective_resample_size == 'D':
+            self.returns = self.data.pct_change().dropna(how='all')
+        else:
+            self.returns = ((self.data.pct_change().dropna(how='all') + 1)
+                            .resample(effective_resample_size)
+                            .prod() - 1).replace(0, np.nan)
+
+        # Optional: update days_in_sample if resampling
+        # if effective_resample_size == 'B':
+        self.days_in_sample = config.FREQ_TO_DAYS[effective_resample_size]
+        
+
+        self.marketret = calculate_market_returns(self.returns[self.skins_names])
         self.information = asset_information(
             self.returns, days_in_sample=self.days_in_sample)
         self.rets_and_market = get_data_and_market(
