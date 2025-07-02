@@ -8,15 +8,16 @@ from dotenv import load_dotenv
 import os
 import ast
 import json
+from cs_portfolio_project.config import config  
 
 # to get cookies and id, go to https://steamcommunity.com/market/pricehistory/?appid=730&market_hash_name=Prisma%202%20Case, inspect and "network", refresh, go to the request and find cookies
 
 load_dotenv()
 
-cookies = {
-    "sessionid": os.getenv("SESSIONID"),
-    "steamLoginSecure": os.getenv("STEAMLOGINSECURE")
-}
+# cookies = {
+#     "sessionid": os.getenv("SESSIONID"),
+#     "steamLoginSecure": os.getenv("STEAMLOGINSECURE")
+# }
 
 def get_price_history(appid, market_hash_name, cookies):
     """
@@ -89,12 +90,14 @@ def get_price_history(appid, market_hash_name, cookies):
         return None
 
 
-appid = 730 #csgo
+appid = config.STEAM_APP_ID  # Use config instead
 
 market_hash_name_list = agent_skins
 
 
 def save_csv_from_list(market_hash_name_list):
+    cookies = config.get_steam_cookies() 
+
     failed_items = []
     for item in market_hash_name_list:
 
@@ -106,7 +109,10 @@ def save_csv_from_list(market_hash_name_list):
             df_item=df_item[df_item['date']>= min(df_item['date']) + timedelta(days=60)]
             filename =f"{item.replace(' | ','_').replace(' ', '_').replace(':', '').replace('/', '_').replace('(', '').replace(')', '')}_price.csv"
             print(filename)
-            output_dir = os.path.join("data", "raw", "market_prices", "agents")
+
+            # output_dir = os.path.join("data", "raw", "market_prices", "agents")
+            output_dir = config.get_data_path("agents")
+
             os.makedirs(output_dir, exist_ok=True)
             df_item.to_csv(os.path.join(output_dir, filename.lower()))
         else:

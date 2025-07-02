@@ -3,10 +3,11 @@ import pandas as pd
 import numpy as np
 import os
 import argparse
+from cs_portfolio_project.config import config  # ADD THIS
 
 def get_prices_daily(skin_type: str, resample_size='D'):
-    folder_path = f'{skin_type}'
-
+    # folder_path = f'{skin_type}'
+    folder_path = config.get_data_path(skin_type)
     condition_map = {
         "battle-scarred": "BS",
         "well-worn": "WW",
@@ -122,7 +123,7 @@ def adjust_spikes(series, spike_window=12, spike_deviation_threshold=0.2, spike_
     return adjusted_series
 
 
-def smooth_and_fill_with_moving_average(series, smoothing_window=5, spike_window=12, spike_deviation_threshold=0.2, spike_reversion_window=3):
+def smooth_and_fill_with_moving_average(series, smoothing_window=None, spike_window=None, spike_deviation_threshold=None, spike_reversion_window=None):
     """
     Smooth prices and fill missing values using a moving average based on sales.
 
@@ -133,6 +134,16 @@ def smooth_and_fill_with_moving_average(series, smoothing_window=5, spike_window
     Returns:
     - pandas Series with spikes adjusted, smoothed with a sales-based moving average, and NaNs filled
     """
+    # config
+    if smoothing_window is None:
+        smoothing_window = config.SMOOTHING_WINDOW
+    if spike_window is None:
+        spike_window = config.SPIKE_WINDOW
+    if spike_deviation_threshold is None:
+        spike_deviation_threshold = config.SPIKE_DEVIATION_THRESHOLD
+    if spike_reversion_window is None:
+        spike_reversion_window = config.SPIKE_REVERSION_WINDOW
+
     spike_adjusted_series = adjust_spikes(
         series, spike_window, spike_deviation_threshold, spike_reversion_window)
 
@@ -165,7 +176,7 @@ def smooth_and_fill_with_moving_average(series, smoothing_window=5, spike_window
 #     return filtered_df
 
 
-def filter_low_prices_until_threshold(df, threshold=0.06, min_days_diff=15):
+def filter_low_prices_until_threshold(df, low_price_threshold=None, min_days_diff=None):
     """
     Replace prices below threshold with NaN until the first price exceeds it, 
     keeping all subsequent prices. Usefull for cases that had constant values
@@ -186,6 +197,12 @@ def filter_low_prices_until_threshold(df, threshold=0.06, min_days_diff=15):
         [0.5, 0.2, 0.05, 0.05, 0.15, 0.04, 0.3, 0.7]
         => [Nan,Nan, Nan, Nan, 0.15, 0.07, 0.3, 0.7]
     """
+    # config
+    if low_price_threshold is None:
+        low_price_threshold = config.LOW_PRICE_THRESHOLD
+    if min_days_diff is None:
+        min_days_diff = config.MIN_DAYS_DIFF
+
     def filter_column(col):
         col_copy = col.copy()
         start_idx = col.index[0]  
@@ -193,7 +210,7 @@ def filter_low_prices_until_threshold(df, threshold=0.06, min_days_diff=15):
         while True:  # continues if min_days_diff is below 15
             # Find the first value <= threshold from the current start point
             mask_under_threshold = col_copy.loc[col_copy.index >=
-                                                start_idx] <= threshold
+                                                start_idx] <= low_price_threshold
             if not mask_under_threshold.any():
                 break  # No more values <= threshold, stop
 
@@ -201,7 +218,7 @@ def filter_low_prices_until_threshold(df, threshold=0.06, min_days_diff=15):
 
             # find first value >= threshold after first_under_idx
             mask_above_threshold = col_copy.loc[col_copy.index >=
-                                                first_under_idx] >= threshold
+                                                first_under_idx] >= low_price_threshold
             if not mask_above_threshold.any():
                 break  # stop their are no more values ≥ threshold
             first_above_idx = mask_above_threshold.idxmax()  # First True value (≥ threshold)
@@ -226,7 +243,7 @@ def filter_low_prices_until_threshold(df, threshold=0.06, min_days_diff=15):
     return filtered_df
 
 
-def save_prices(skin_type: str, smooth, remove_active_drop, name='', resample_size='D', smoothing_window=5, spike_window=12, spike_deviation_threshold=0.2, spike_reversion_window=3):
+def save_prices(skin_type: str, smooth, remove_active_drop, name='', resample_size='D', smoothing_window=None, spike_window=None, spike_deviation_threshold=None, spike_reversion_window=None,low_price_threshold=None):
     """ Convert all skins prices from a given folder to a single csv file
     Input: 
         skin_type: name of the skin type folder
@@ -234,7 +251,8 @@ def save_prices(skin_type: str, smooth, remove_active_drop, name='', resample_si
         remove_active_drop: 1 if only prices after drop pool should be kept.4
     """
 
-    raw_path = os.path.join("data", "raw", "market_prices", skin_type)
+    # raw_path = os.path.join("data", "raw", "market_prices", skin_type)
+    raw_path = config.get_data_path(skin_type)
     prices = get_prices_daily(raw_path, resample_size)
     # sort by realse date
     first_sale_dates = prices.apply(lambda col: col.first_valid_index())
@@ -242,7 +260,7 @@ def save_prices(skin_type: str, smooth, remove_active_drop, name='', resample_si
     prices_sorted = prices[sorted_columns]
     prices_sorted.resample(resample_size).mean()
     if remove_active_drop:
-        prices_sorted = filter_low_prices_until_threshold(prices_sorted)
+        prices_sorted = filter_low_prices_until_threshold(prices_sorted,low_price_threshold)
 
     # apply smoothing for illiquid items
     if smooth:
@@ -250,7 +268,10 @@ def save_prices(skin_type: str, smooth, remove_active_drop, name='', resample_si
             column, smoothing_window, spike_window, spike_deviation_threshold, spike_reversion_window))
     
     filename = f"{name.lower()}.csv" if name else f"{skin_type.lower()}.csv"
-    output_path = os.path.join("data", "processed", resample_size, filename)
+
+    # output_path = os.path.join("data", "processed", resample_size, filename)
+    output_path = os.path.join(config.get_processed_path(resample_size), filename)
+
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     prices_sorted.to_csv(output_path)
 
