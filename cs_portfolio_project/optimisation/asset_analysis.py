@@ -13,7 +13,7 @@ from typing import Union, Callable
 from pathlib import Path
 from sklearn import covariance, cluster, manifold
 from matplotlib.collections import LineCollection
-from cs_portfolio_project.config import config  
+from cs_portfolio_project.config import config
 import yfinance as yf
 project_root = Path(__file__).resolve().parents[2]
 
@@ -178,7 +178,7 @@ def get_constant_corr_covmatrix(returns):
     ccor = np.full_like(rhos, rho_bar)
     np.fill_diagonal(ccor, 1.)
     sd = returns.std()
-    ccov = ccor * np.outer(sd, sd) 
+    ccov = ccor * np.outer(sd, sd)
 #     mh.corr2cov(ccor, sd)
     return pd.DataFrame(ccov, index=returns.columns, columns=returns.columns)
 
@@ -335,27 +335,31 @@ def plot_graphical_network(rets: pd.DataFrame, min_samples: int = 5):
     plt.title(title, fontsize=12, pad=10)
     plt.show()
 
-def detect_if_traded_weekdays(asset_prices:pd.DataFrame):
+
+def detect_if_traded_weekdays(asset_prices: pd.DataFrame):
     """ returns True is any of the assets in traded only on weekdays
     """
     for asset in asset_prices.columns:
         max_day = asset_prices[asset].dropna().index.day_of_week.max()
-        if max_day==4:
+        if max_day == 4:
             return True
     return False
 
-def get_additional_data(skins_price_data,additional_asset_names:list,start_date,end_date):
+
+def get_additional_data(skins_price_data, additional_asset_names: list, start_date, end_date):
     """ download and merge additional financial data to a previous price dataframe (ex: 'BTC-USD','ES=F')
         Also returns True if any of the assets are traded only on business days
     """
-    additiona_price_data=yf.download(additional_asset_names, start=start_date, end=end_date
-                   )['Close']
-    price_data_updated=pd.concat([skins_price_data , additiona_price_data],axis=1)
+    additiona_price_data = yf.download(additional_asset_names, start=start_date, end=end_date
+                                       )['Close']
+    price_data_updated = pd.concat(
+        [skins_price_data, additiona_price_data], axis=1)
     if detect_if_traded_weekdays(additiona_price_data):
-        traded_business_days=True
-    else: 
-        traded_business_days=False
-    return price_data_updated,traded_business_days
+        traded_business_days = True
+    else:
+        traded_business_days = False
+    return price_data_updated, traded_business_days
+
 
 class AssetAnalysis:
     """ Class to manipulate assets
@@ -368,7 +372,7 @@ class AssetAnalysis:
 
     }
 
-    def __init__(self, csv_or_df: str | pd.DataFrame, risk_free_rate: float = 0.0, resample_size='D', cov_method: Union[str, Callable] = 'standard', lambda_: float = 0.94,additional_asset_names:list[str]=None,additional_asset_names_start_end_data:list[str,str]=None):
+    def __init__(self, csv_or_df: str | pd.DataFrame, risk_free_rate: float = 0.0, resample_size='D', cov_method: Union[str, Callable] = 'standard', lambda_: float = 0.94, additional_asset_names: list[str] = None, additional_asset_names_start_end_data: list[str, str] = None):
         """
         Initializes the class by loading data and computing necessary values.
 
@@ -382,7 +386,7 @@ class AssetAnalysis:
         """
         self.risk_free_rate = risk_free_rate
         self.lambda_ = lambda_
-        
+
         if isinstance(csv_or_df, str):
             # If a string (file path) is provided, load the CSV file
             self.data = pd.read_csv(
@@ -399,13 +403,13 @@ class AssetAnalysis:
         else:
             raise ValueError(
                 "Data must be a file path (str) or a pandas DataFrame.")
-        
 
         self.skins_names = self.data.columns
 
-        if additional_asset_names is not None: # if additional assets are provided
-            
-            additional_data = get_additional_data(self.data,additional_asset_names,start_date=additional_asset_names_start_end_data[0],end_date=additional_asset_names_start_end_data[1])
+        if additional_asset_names is not None:  # if additional assets are provided
+
+            additional_data = get_additional_data(
+                self.data, additional_asset_names, start_date=additional_asset_names_start_end_data[0], end_date=additional_asset_names_start_end_data[1])
             self.data = additional_data[0]
             is_traded_daily = additional_data[1]
 
@@ -426,12 +430,11 @@ class AssetAnalysis:
                             .resample(effective_resample_size)
                             .prod() - 1).replace(0, np.nan)
 
-        # Optional: update days_in_sample if resampling
         # if effective_resample_size == 'B':
         self.days_in_sample = config.FREQ_TO_DAYS[effective_resample_size]
-        
 
-        self.marketret = calculate_market_returns(self.returns[self.skins_names])
+        self.marketret = calculate_market_returns(
+            self.returns[self.skins_names])
         self.information = asset_information(
             self.returns, days_in_sample=self.days_in_sample)
         self.rets_and_market = get_data_and_market(
@@ -496,7 +499,7 @@ class AssetAnalysis:
         plot_efficient_frontier_2(
             self.returns, self.marketret, self.cov_matrix, n_points, effective_risk_free_rate)
 
-    def plot_market_decompose(self,data_type:str,model:str):
+    def plot_market_decompose(self, data_type: str, model: str):
         """Plot the market time series decomposition. Checks for stationarity, if p-value <0.05, time series is likely stationary
 
         Args:
@@ -504,11 +507,13 @@ class AssetAnalysis:
             model (str): 'additive' or 'multiplicative'.
         """
         if data_type == 'price':
-            plot_time_series_decompose(self.market_price,model,self.days_in_sample)
+            plot_time_series_decompose(
+                self.market_price, model, self.days_in_sample)
         elif data_type == 'returns':
-            plot_time_series_decompose(self.marketret,model,self.days_in_sample)
-            
-    def plot_market_ACF_PACF(self,data_type:str,lags=20):
+            plot_time_series_decompose(
+                self.marketret, model, self.days_in_sample)
+
+    def plot_market_ACF_PACF(self, data_type: str, lags=20):
         """Plot the market time series decomposition.
 
         Args:
@@ -516,9 +521,9 @@ class AssetAnalysis:
             model (str): 'additive' or 'multiplicative'.
         """
         if data_type == 'price':
-            plot_ACF_and_PACF(self.market_price,lags)
+            plot_ACF_and_PACF(self.market_price, lags)
         elif data_type == 'returns':
-            plot_ACF_and_PACF(self.marketret,lags)
+            plot_ACF_and_PACF(self.marketret, lags)
 
     def plot_corr_with_market(self):
         correlation = self.rets_and_market.corr(

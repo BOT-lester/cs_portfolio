@@ -10,7 +10,7 @@ import seaborn as sns
 from typing import Callable, Dict, Any, Optional
 import inspect
 from cs_portfolio_project.config import config 
-
+import yfinance as yf
 
 def get_alpha_and_beta(rets, market_rets):
     """
@@ -579,12 +579,19 @@ def backtest(
         'sharpe_ratio': sharpe_ratio
     }
 
+def get_additional_returns(additional_asset_names: list, start_date, end_date):
+    """ download and calculates returns of financial data (yfinance)
+    """
+    additiona_price_data = yf.download(additional_asset_names, start=start_date, end=end_date
+                                       )['Close']
+    return additiona_price_data.pct_change()
 
 def plot_backtest_vs_eq(
     rets: pd.DataFrame,
     market: pd.Series,
     weight_func: Callable = get_mvp,
     rebalancing: str = 'YE',
+    other_comparison_asset:pd.DataFrame=None,
     risk_free_rate: float = None,
     days_in_sample: int = None,
     **func_kwargs: Any
@@ -597,6 +604,7 @@ def plot_backtest_vs_eq(
         market (pd.Series): Market returns.
         weight_func (Callable): Function to compute portfolio weights (default: get_mvp).
         rebalancing (str): Rebalancing frequency ('M', 'Y', etc.).
+        other_comparison_asset_returns (pd.Dataframe): plot other assets for comparison (eg: ['BTC-USD','ES=F'])
         risk_free_rate (float): Risk-free rate.
         days_in_sample (int): Number of days to annualize.
         **func_kwargs: Additional arguments for weight (weight_func_kwargs=dict) , covariance (covariance_kwargs=dict= and expected returns functions(expected_returns_kwargs=dict). 
@@ -623,6 +631,13 @@ def plot_backtest_vs_eq(
         data=np.log((backtest_results['portfolio_returns'] + 1).cumprod()),
         label=weight_func.__name__
     )
+    if other_comparison_asset is not None:
+        other_comparison_asset_returns=get_additional_returns(other_comparison_asset,start_date=market.index[0],end_date=market.index[-1])
+        for asset in other_comparison_asset_returns.columns:
+                sns.lineplot(
+                    data=np.log((other_comparison_asset_returns[asset] + 1).cumprod()),
+                    label=asset
+                )
     plt.title('Performance in Log Scale')
     plt.xlabel('Date')
     plt.ylabel('Log price')
