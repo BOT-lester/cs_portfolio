@@ -41,6 +41,32 @@ def find_portfolio_value(skins: list, quantity: list, asset_prices: pd.DataFrame
     return find_portfolio_weights_and_value(skins, quantity, asset_prices)[1]
 
 
+def find_skins_quantity(available_funds:float,weights:pd.Series,asset_prices: pd.DataFrame):
+
+    latest_prices = asset_prices.ffill().iloc[-1]
+    dollar_allocation = available_funds * weights
+    quantity = np.floor(dollar_allocation / latest_prices).astype(int)
+    cost = latest_prices*quantity
+    actual_weight = cost / cost.sum()
+    abs_diff = np.abs(weights - actual_weight) 
+    return quantity,cost,actual_weight,np.mean(abs_diff)
+
+def plot_skins_quantity(quantity:pd.Series):
+
+    filtered_series = quantity[quantity > 0]
+    labels = filtered_series.index
+    quantities = filtered_series.values
+    plt.bar(labels, quantities, edgecolor="black")
+    plt.xlabel("Assets")
+    plt.xticks(rotation=90)
+    plt.ylabel("Quantity (Whole Units)")
+    plt.title("Portfolio Asset Quantities (Non-Zero)")
+    plt.ylim(0, max(quantities) * 1.1)  
+    plt.grid(True, axis="y", linestyle="--", alpha=0.7)
+    plt.tight_layout()
+    plt.show()
+
+
 def plot_portfolio_pie(weights: pd.Series,figure_size:tuple=(8,8)):
     """
     Plot a pie chart of portfolio allocation by asset weights.

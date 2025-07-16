@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from cs_portfolio_project.optimisation.portfolio import *
 from cs_portfolio_project.optimisation.time_series import *
+from cs_portfolio_project.optimisation.montecarlo import *
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -429,6 +430,7 @@ class AssetAnalysis:
             self.returns = ((self.data.pct_change().dropna(how='all') + 1)
                             .resample(effective_resample_size)
                             .prod() - 1).replace(0, np.nan)
+        self.skins_and_assets_names = self.returns.columns
 
         # if effective_resample_size == 'B':
         self.days_in_sample = config.FREQ_TO_DAYS[effective_resample_size]
@@ -471,7 +473,7 @@ class AssetAnalysis:
             raise ValueError("cov_method must be a string or callable")
 
         self.correlation_matrix = self.returns.corr()
-        self.mwp = get_minimum_var_portfolio(
+        self.mvp = get_minimum_var_portfolio(
             self.returns, self.marketret, self.cov_matrix, risk_free_rate, self.days_in_sample)
         self.distance_matrix = 1 - self.correlation_matrix
         csv_path_players = project_root / 'data' / \
@@ -479,6 +481,7 @@ class AssetAnalysis:
 
         self.players = pd.read_csv(csv_path_players, index_col='Month')
         self.players.index = pd.to_datetime(self.players.index)
+        self.expected_returns = get_expected_returns_CAPM(self.returns, self.marketret, self.risk_free_rate)
 
     def plot_corr_matrix(self, figure_size=(25, 15)):
         """Plots the correlation matrix only when explicitly called."""
@@ -639,3 +642,27 @@ class AssetAnalysis:
 
     def plot_graphical_network_assets(self, start_date: str):
         plot_graphical_network(self.returns[start_date:])
+
+    def get_weights_portfolio(self,portfolio_type:str):
+        """ get portfolio weights 
+        Args:
+            portfolio_type= 'mvp','equal weight','max sharp'
+            
+        """
+        if portfolio_type=='mvp':
+            weights = np.round(pd.Series(self.mvp [0],index=self.skins_and_assets_names),4)
+        elif portfolio_type=='equal weight':
+            weights = np.round(get_equal_weight_pf(self.returns),4)
+        elif portfolio_type=='max sharp':
+            weights=np.round(get_max_sharpe_portfolio(self.returns,self.risk_free_rate,self.days_in_sample,config.MIN_VOL_THRESHOLD,self.expected_returns,self.cov_matrix),4)
+        else:
+            raise ValueError("portfolio_type not supported")
+        return weights
+            
+    def find_skins_quantity_portfolio_and_plot(self,available_funds,portfolio_type:str):
+        weights = self.get_weights_portfolio(portfolio_type)
+        quantity,cost,actual_weight,mean_diff_with_actual_weight=find_skins_quantity(available_funds,weights,self.data)
+
+        print("skins quantity to buy", quantity)
+        print("mean difference between theoretical optimal portfolio and actual portfolio", mean_diff_with_actual_weight)
+        plot_skins_quantity(quantity)
