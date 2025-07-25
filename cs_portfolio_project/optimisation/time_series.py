@@ -6,7 +6,7 @@ import pandas as pd
 import numpy as np
 from statsmodels.tsa.stattools import adfuller
 
-def plot_time_series_decompose(data,model,period=365):
+def plot_time_series_decompose(data,model,period=365,bar_scaling_factor=10):
     """
     Plot the time series decomposition ('Observed', 'Trend', 'Seasonal', 'Residual').
 
@@ -14,6 +14,7 @@ def plot_time_series_decompose(data,model,period=365):
         data (pd.Series): Time series (can be returns or price).
         model (str): 'additive' or 'multiplicative'.
         period (int): periodicity (1 for annual, 12 for monthly, ect.).
+        bar_scaling_factor ( int) : the adjust the size of the scale bar.
 
     Note:
         checks for stationarity, if p-value <0.05, time series is likely stationary
@@ -24,10 +25,19 @@ def plot_time_series_decompose(data,model,period=365):
     components = ['Observed', 'Trend', 'Seasonal', 'Residual']
     plot_data = [result.observed, result.trend, result.seasonal, result.resid]
 
+    global_range = np.nanmax(result.observed) - np.nanmin(result.observed)
+    bar_height = global_range / bar_scaling_factor  
     for ax, comp, series in zip(axs, components, plot_data):
         ax.plot(series.index, series.values, marker='o', markersize=1, linewidth=1)
         ax.set_title(comp, fontsize=14)
         ax.grid(True)
+        # Draw the same scale bar for each subplot
+        x_loc = series.index[-1]
+        y_loc = ax.get_ylim()[0] + 0.05 * (ax.get_ylim()[1] - ax.get_ylim()[0])
+        ax.vlines(x=x_loc, ymin=y_loc, ymax=y_loc + bar_height, color='red', linewidth=2)
+        ax.text(x_loc, y_loc + bar_height / 2, f"{bar_height:.2e}", color='red',
+                va='center', ha='left', fontsize=9)
+
     plt.xticks(rotation=45)
     plt.tight_layout()
     plt.show()

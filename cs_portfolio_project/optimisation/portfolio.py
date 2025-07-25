@@ -11,6 +11,9 @@ from typing import Callable, Dict, Any, Optional
 import inspect
 from cs_portfolio_project.config import config 
 import yfinance as yf
+from cs_portfolio_project.optimisation.estimator_functions import ExpectedReturns
+
+
 
 def get_alpha_and_beta(rets, market_rets):
     """
@@ -43,19 +46,6 @@ def get_alpha_and_beta(rets, market_rets):
     return results_CAPM
 
 
-def get_expected_returns_CAPM(rets, market_rets, risk_free_rate=None):
-    if risk_free_rate==None:
-        risk_free_rate=config.RISK_FREE_RATE
-        
-    expected_market_return = market_rets.mean()
-    capm_results = get_alpha_and_beta(rets, market_rets).set_index('Asset')
-
-    expected_returns = pd.Series({
-        asset: risk_free_rate + capm_results.loc[asset, 'Beta'] * (
-            expected_market_return - risk_free_rate) + capm_results.loc[asset, 'Alpha']
-        for asset in capm_results.index
-    })
-    return expected_returns
 
 
 def plot_alpha_beta(results_CAPM):
@@ -99,7 +89,7 @@ def get_efficient_frontier(rets, market_rets, cov_matrix, n_points=None, risk_fr
     if risk_free_rate is None:
         risk_free_rate = config.RISK_FREE_RATE
 
-    expected_returns = get_expected_returns_CAPM(
+    expected_returns = ExpectedReturns.get_expected_returns_CAPM(
         rets, market_rets, risk_free_rate)
 
     n_assets = len(expected_returns)
@@ -149,7 +139,7 @@ def get_minimum_var_portfolio(rets, market_rets, cov_matrix, risk_free_rate=None
     if days_in_sample is None:
         days_in_sample = config.DAYS_IN_SAMPLE
     
-    expected_returns = get_expected_returns_CAPM(
+    expected_returns = ExpectedReturns.get_expected_returns_CAPM(
         rets, market_rets, risk_free_rate)
     n_assets = len(expected_returns)
     initial_weights = np.array([1/n_assets] * n_assets)
@@ -205,7 +195,7 @@ def plot_efficient_frontier_2(rets, market_rets, cov_matrix, n_points=50, risk_f
     ), market_rets.mean()
 
     # cov_matrix = rets.cov()
-    expected_returns = get_expected_returns_CAPM(
+    expected_returns = ExpectedReturns.get_expected_returns_CAPM(
         rets, market_rets, risk_free_rate)
 
     plt.figure(figsize=(10, 6))
@@ -242,17 +232,159 @@ def kmean_clustering(n_clusters, distance_matrix):
     return clusters
 
 
-def get_equal_weight_pf(rets: pd.DataFrame) -> pd.Series:
-    """ get the equal weights portfolio variance portofilio composition
-    Args:
-        rets (pd.DataFrame): DataFrame with asset returns of the assets in the portfolio
-    returns:
-        pd.Series: portfolio weights
-    """
-    n_assets = len(rets.columns)
-    weights = np.array([1/n_assets] * n_assets)
-    return pd.Series(index=rets.columns, data=weights)
+class WeightFunctions:
 
+    @staticmethod
+    def get_equal_weight_pf(rets: pd.DataFrame) -> pd.Series:
+        """ get the equal weights portfolio variance portofilio composition
+        Args:
+            rets (pd.DataFrame): DataFrame with asset returns of the assets in the portfolio
+        returns:
+            pd.Series: portfolio weights
+        """
+        n_assets = len(rets.columns)
+        weights = np.array([1/n_assets] * n_assets)
+        return pd.Series(index=rets.columns, data=weights)
+    
+    @staticmethod
+    def get_mvp(rets: pd.DataFrame, cov_matrix, min_vol_threshold=None) -> pd.Series:
+        """ find the minimum variance portofilio compisition
+        Args:
+            rets (pd.DataFrame): DataFrame with asset returns 
+            min_vol_threshold : minimum threshold to eliminate constant prices
+        returns:
+            pd.Series: portfolio weights
+        """
+        # config 
+        if min_vol_threshold is None:
+            min_vol_threshold = config.MIN_VOL_THRESHOLD
+        # expected_returns=get_expected_returns_CAPM(returns_and_mkt,risk_free_rate).dropna()
+        
+        # filtered_rets = rets.dropna(axis=1)
+        filtered_rets = rets
+
+        # Compute standard deviations and filter assets below the threshold
+        vol = filtered_rets.std()
+        valid_assets = vol[vol > min_vol_threshold].index
+        filtered_rets = filtered_rets[valid_assets]
+
+        if filtered_rets.empty:
+            print("No assets meet the volatility criteria.")
+            return None
+        filtered_assets = filtered_rets.columns
+        filtered_cov_matrix = cov_matrix.loc[filtered_assets, filtered_assets]
+
+        # cov_matrix = cov_matrix.dropna(how='all').dropna(axis=1)
+        n_assets = len(filtered_cov_matrix)
+        initial_weights = np.array([1/n_assets] * n_assets)
+        bounds = tuple((0, 1) for _ in range(n_assets))
+        gmv_result = minimize(
+            minimize_volatility,
+            initial_weights,
+            args=(filtered_cov_matrix,),
+            method='SLSQP',
+            bounds=bounds,
+            constraints=[{'type': 'eq', 'fun': lambda w: np.sum(w) - 1}]
+        )
+
+        gmv_weights = pd.Series(index=filtered_cov_matrix.columns, data=gmv_result.x)
+        return gmv_weights
+    
+    @staticmethod
+    def get_max_sharpe_portfolio(
+        rets: pd.DataFrame,
+        risk_free_rate: float =None,
+        days_in_sample: int = None,
+        min_vol_threshold: float = None,
+        expected_returns: Optional[pd.Series] = None,
+        cov_matrix: Optional[pd.DataFrame] = None
+    ) -> pd.Series:
+        """
+        Calculate the portfolio weights that maximize the Sharpe ratio.
+
+        Args:
+            rets (pd.DataFrame): DataFrame with asset returns.
+            risk_free_rate (float): Risk-free rate for Sharpe ratio calculation.
+            days_in_sample (int): Number of days to annualize returns and volatility.
+            min_vol_threshold (float): Minimum volatility threshold to filter assets with constant prices.
+            expected_returns (Optional[pd.Series]): Expected returns for assets. If None, use historical means.
+            cov_matrix (Optional[pd.DataFrame]): Covariance matrix of asset returns. If None, compute from rets.
+
+        returns:
+            pd.Series: Portfolio weights, indexed by asset names, or None if optimization fails.
+        """
+
+        # config
+        if risk_free_rate is None:
+            risk_free_rate = config.RISK_FREE_RATE
+        if days_in_sample is None:
+            days_in_sample = config.DAYS_IN_SAMPLE
+        if min_vol_threshold is None:
+            min_vol_threshold = config.MIN_VOL_THRESHOLD
+
+        # Filter out assets with missing data or low volatility
+        # filtered_rets = rets.drop('market',axis=1)
+        filtered_rets = rets
+
+        vol = filtered_rets.std()
+        valid_assets = vol[vol > min_vol_threshold].index
+        filtered_rets = filtered_rets[valid_assets]
+
+        # Compute expected returns and cov matrix if not provided
+        if expected_returns is None:
+            # arithmetic annualization for markowitz
+            expected_returns = filtered_rets.mean() # * days_in_sample
+        else:
+            expected_returns = expected_returns.loc[valid_assets]
+
+        if cov_matrix is None:
+            cov_matrix = filtered_rets.cov()
+        else:
+            cov_matrix = cov_matrix.loc[valid_assets, valid_assets]
+
+        # cond_number = np.linalg.cond(cov_matrix.values)
+        # print(f"Covariance matrix condition number: {cond_number}")
+
+        n_assets = len(valid_assets)
+        # initial_weights = np.array([1/n_assets] * n_assets)
+        initial_weights = np.random.dirichlet(np.ones(n_assets), size=1)[0]
+
+        bounds = tuple((0, 1) for _ in range(n_assets))
+
+        # Define negative Sharpe ratio for minimization
+        def negative_sharpe_ratio(weights, expected_returns, cov_matrix, risk_free_rate, days_in_sample):
+            port_return = np.sum(expected_returns * weights) * days_in_sample
+            port_vol = np.sqrt(np.dot(weights.T, np.dot(
+                cov_matrix * days_in_sample, weights)))
+            if port_vol == 0:
+                return np.inf  # Avoid division by zero
+            return -(port_return - risk_free_rate) / port_vol
+
+        # Optimize
+        result = minimize(
+            negative_sharpe_ratio,
+            initial_weights,
+            args=(expected_returns, cov_matrix, risk_free_rate, days_in_sample),
+            method='SLSQP',
+            bounds=bounds,
+            constraints=[{'type': 'eq', 'fun': lambda w: np.sum(w) - 1}]
+        )
+
+        if not result.success:
+            print(f"Optimization failed: {result.message}")
+            return None
+        # if not result.success:
+        #     print(f"\nOptimization failed: {result.message}")
+        #     print(f"Expected returns:\n{expected_returns}")
+        #     print(f"Covariance matrix:\n{cov_matrix}")
+        #     print(f"Initial weights:\n{initial_weights}")
+        #     print(f"Volatilities:\n{vol}")
+        #     print(f"Filtered returns shape: {filtered_rets.shape}")
+        #     print(f"All-zero returns columns:\n{filtered_rets.columns[filtered_rets.std() < 1e-6].tolist()}")
+        #     return None
+
+        weights = pd.Series(data=result.x, index=valid_assets)
+        return weights
 
 # def get_mvp(rets: pd.DataFrame, min_vol_threshold=1e-6):
 #     """ find the minimum variance portofilio compisition
@@ -293,142 +425,6 @@ def get_equal_weight_pf(rets: pd.DataFrame) -> pd.Series:
 #     return gmv_weights
 
 
-def get_mvp(rets: pd.DataFrame, cov_matrix, min_vol_threshold=None) -> pd.Series:
-    """ find the minimum variance portofilio compisition
-    Args:
-        rets (pd.DataFrame): DataFrame with asset returns 
-        min_vol_threshold : minimum threshold to eliminate constant prices
-    returns:
-        pd.Series: portfolio weights
-    """
-    # config 
-    if min_vol_threshold is None:
-        min_vol_threshold = config.MIN_VOL_THRESHOLD
-    # expected_returns=get_expected_returns_CAPM(returns_and_mkt,risk_free_rate).dropna()
-    filtered_rets = rets.dropna(axis=1)
-
-    # Compute standard deviations and filter assets below the threshold
-    vol = filtered_rets.std()
-    valid_assets = vol[vol > min_vol_threshold].index
-    filtered_rets = filtered_rets[valid_assets]
-
-    if filtered_rets.empty:
-        print("No assets meet the volatility criteria.")
-        return None
-    filtered_assets = filtered_rets.columns
-    filtered_cov_matrix = cov_matrix.loc[filtered_assets, filtered_assets]
-
-    # cov_matrix = cov_matrix.dropna(how='all').dropna(axis=1)
-    n_assets = len(filtered_cov_matrix)
-    initial_weights = np.array([1/n_assets] * n_assets)
-    bounds = tuple((0, 1) for _ in range(n_assets))
-    gmv_result = minimize(
-        minimize_volatility,
-        initial_weights,
-        args=(filtered_cov_matrix,),
-        method='SLSQP',
-        bounds=bounds,
-        constraints=[{'type': 'eq', 'fun': lambda w: np.sum(w) - 1}]
-    )
-
-    gmv_weights = pd.Series(index=filtered_cov_matrix.columns, data=gmv_result.x)
-    return gmv_weights
-
-
-def get_max_sharpe_portfolio(
-    rets: pd.DataFrame,
-    risk_free_rate: float =None,
-    days_in_sample: int = None,
-    min_vol_threshold: float = None,
-    expected_returns: Optional[pd.Series] = None,
-    cov_matrix: Optional[pd.DataFrame] = None
-) -> pd.Series:
-    """
-    Calculate the portfolio weights that maximize the Sharpe ratio.
-
-    Args:
-        rets (pd.DataFrame): DataFrame with asset returns.
-        risk_free_rate (float): Risk-free rate for Sharpe ratio calculation.
-        days_in_sample (int): Number of days to annualize returns and volatility.
-        min_vol_threshold (float): Minimum volatility threshold to filter assets with constant prices.
-        expected_returns (Optional[pd.Series]): Expected returns for assets. If None, use historical means.
-        cov_matrix (Optional[pd.DataFrame]): Covariance matrix of asset returns. If None, compute from rets.
-
-    returns:
-        pd.Series: Portfolio weights, indexed by asset names, or None if optimization fails.
-    """
-
-    # config
-    if risk_free_rate is None:
-        risk_free_rate = config.RISK_FREE_RATE
-    if days_in_sample is None:
-        days_in_sample = config.DAYS_IN_SAMPLE
-    if min_vol_threshold is None:
-        min_vol_threshold = config.MIN_VOL_THRESHOLD
-
-    # Filter out assets with missing data or low volatility
-    # filtered_rets = rets.drop('market',axis=1)
-    filtered_rets = rets
-
-    vol = filtered_rets.std()
-    valid_assets = vol[vol > min_vol_threshold].index
-    filtered_rets = filtered_rets[valid_assets]
-
-    # Compute expected returns and cov matrix if not provided
-    if expected_returns is None:
-        # arithmetic annualization for markowitz
-        expected_returns = filtered_rets.mean() # * days_in_sample
-    else:
-        expected_returns = expected_returns.loc[valid_assets]
-
-    if cov_matrix is None:
-        cov_matrix = filtered_rets.cov()
-    else:
-        cov_matrix = cov_matrix.loc[valid_assets, valid_assets]
-
-    # cond_number = np.linalg.cond(cov_matrix.values)
-    # print(f"Covariance matrix condition number: {cond_number}")
-
-    n_assets = len(valid_assets)
-    # initial_weights = np.array([1/n_assets] * n_assets)
-    initial_weights = np.random.dirichlet(np.ones(n_assets), size=1)[0]
-
-    bounds = tuple((0, 1) for _ in range(n_assets))
-
-    # Define negative Sharpe ratio for minimization
-    def negative_sharpe_ratio(weights, expected_returns, cov_matrix, risk_free_rate, days_in_sample):
-        port_return = np.sum(expected_returns * weights) * days_in_sample
-        port_vol = np.sqrt(np.dot(weights.T, np.dot(
-            cov_matrix * days_in_sample, weights)))
-        if port_vol == 0:
-            return np.inf  # Avoid division by zero
-        return -(port_return - risk_free_rate) / port_vol
-
-    # Optimize
-    result = minimize(
-        negative_sharpe_ratio,
-        initial_weights,
-        args=(expected_returns, cov_matrix, risk_free_rate, days_in_sample),
-        method='SLSQP',
-        bounds=bounds,
-        constraints=[{'type': 'eq', 'fun': lambda w: np.sum(w) - 1}]
-    )
-
-    if not result.success:
-        print(f"Optimization failed: {result.message}")
-        return None
-    # if not result.success:
-    #     print(f"\nOptimization failed: {result.message}")
-    #     print(f"Expected returns:\n{expected_returns}")
-    #     print(f"Covariance matrix:\n{cov_matrix}")
-    #     print(f"Initial weights:\n{initial_weights}")
-    #     print(f"Volatilities:\n{vol}")
-    #     print(f"Filtered returns shape: {filtered_rets.shape}")
-    #     print(f"All-zero returns columns:\n{filtered_rets.columns[filtered_rets.std() < 1e-6].tolist()}")
-    #     return None
-
-    weights = pd.Series(data=result.x, index=valid_assets)
-    return weights
 
 # def backtest(rets, weight_func=get_mvp, rebalancing='Y', risk_free_rate=0.0, days_in_sample=365):
 #     """Backtest the GMV portfolio strategy with specified rebalancing frequency.
@@ -589,7 +585,7 @@ def get_additional_returns(additional_asset_names: list, start_date, end_date):
 def plot_backtest_vs_eq(
     rets: pd.DataFrame,
     market: pd.Series,
-    weight_func: Callable = get_mvp,
+    weight_func: Callable = WeightFunctions.get_mvp,
     rebalancing: str = 'YE',
     other_comparison_asset:pd.DataFrame=None,
     risk_free_rate: float = None,
@@ -645,3 +641,56 @@ def plot_backtest_vs_eq(
     plt.grid(True)
     plt.tight_layout()
     plt.show()
+
+def plot_backtest_vs_eq_webapp(
+    rets: pd.DataFrame,
+    market: pd.Series,
+    weight_func: Callable = WeightFunctions.get_mvp,
+    rebalancing: str = 'YE',
+    other_comparison_asset: pd.DataFrame = None,
+    risk_free_rate: float = None,
+    days_in_sample: int = None,
+    **func_kwargs: Any
+) -> plt.Figure:
+
+    if risk_free_rate is None:
+        risk_free_rate = config.RISK_FREE_RATE
+    if days_in_sample is None:
+        days_in_sample = config.DAYS_IN_SAMPLE
+
+    backtest_results = backtest(
+        rets,
+        weight_func=weight_func,
+        rebalancing=rebalancing,
+        risk_free_rate=risk_free_rate,
+        days_in_sample=days_in_sample,
+        **func_kwargs
+    )
+
+    fig, ax = plt.subplots(figsize=(12, 6))
+
+    sns.lineplot(data=np.log((market + 1).cumprod()), label='Market (Equal-Weighted)', ax=ax)
+    sns.lineplot(
+        data=np.log((backtest_results['portfolio_returns'] + 1).cumprod()),
+        label=weight_func.__name__,
+        ax=ax
+    )
+
+    if other_comparison_asset is not None:
+        other_returns = get_additional_returns(other_comparison_asset, start_date=market.index[0], end_date=market.index[-1])
+        for asset in other_returns.columns:
+            sns.lineplot(
+                data=np.log((other_returns[asset] + 1).cumprod()),
+                label=asset,
+                ax=ax
+            )
+
+    ax.set_title('Performance in Log Scale')
+    ax.set_xlabel('Date')
+    ax.set_ylabel('Log price')
+    ax.legend()
+    ax.grid(True)
+    fig.tight_layout()
+
+    return fig
+

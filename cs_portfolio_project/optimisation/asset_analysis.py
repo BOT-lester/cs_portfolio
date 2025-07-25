@@ -6,6 +6,8 @@ import seaborn as sns
 from cs_portfolio_project.optimisation.portfolio import *
 from cs_portfolio_project.optimisation.time_series import *
 from cs_portfolio_project.optimisation.montecarlo import *
+from cs_portfolio_project.optimisation.estimator_functions import *
+
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -116,94 +118,32 @@ def plot_players_and_asset(players_pctchange, asset_returns, log=0):
     if log == 1:
         players_cum_log = np.log(players_cum_log)
         asset_cum_log = np.log(asset_cum_log)
-    # Create a subplot with two y-axes
     fig = make_subplots(specs=[[{"secondary_y": True}]])
 
-    # Add trace for players' cumulative log returns (left y-axis)
+    # players' cumulative log returns (left y-axis)
     fig.add_trace(
         go.Scatter(x=players_pctchange.index, y=players_cum_log,
                    name="Players Cumulative Returns", line=dict(color="blue")),
         secondary_y=False,
     )
 
-    # Add trace for asset cumulative log returns (right y-axis)
+    # asset cumulative log returns (right y-axis)
     fig.add_trace(
         go.Scatter(x=asset_returns.index, y=asset_cum_log,
                    name="Asset Cumulative Returns", line=dict(color="red")),
         secondary_y=True,
     )
 
-    # Update layout with titles and axis labels
     fig.update_layout(
         title_text="Cumulative Returns: Players vs Asset",
         xaxis_title="Date",
         legend=dict(x=0.01, y=0.99),  # Position legend inside plot
     )
-
-    # Update y-axes titles
     fig.update_yaxes(title_text="Players Returns", secondary_y=False)
     fig.update_yaxes(title_text="Asset Returns", secondary_y=True)
+    # fig.show()
+    return fig
 
-    # Make the plot interactive and show it
-    fig.show()
-
-
-def get_ewma_cov_matrix(returns, lambda_=0.94):
-    """
-    Compute the EWMA covariance matrix with weights w_t = lambda^(T-t) / sum(lambda^(T-t)).
-
-    Args:
-        returns (pd.DataFrame): Returns data, columns are assets.
-        lambda_ (float): Decay factor for EWMA (0 < lambda_ < 1, default 0.94).
-        days_in_sample (int): Number of days for annualization.
-
-    Returns:
-        pd.DataFrame:  EWMA covariance matrix.
-    """
-    returns = returns.drop(columns=['market'], errors='ignore')
-    span = 2 / (1 - lambda_) - 1
-    cov_ewma = returns.ewm(span=span, adjust=True).cov().iloc[-len(returns):]
-    cov_matrix = cov_ewma.loc[returns.index[-1]]
-    cov_matrix = (cov_matrix + cov_matrix.T) / 2
-    # cov_matrix *= days_in_sample
-    return cov_matrix
-
-
-def get_constant_corr_covmatrix(returns):
-    """
-    Estimates a covariance matrix by using the Elton/Gruber Constant Correlation model
-    """
-    rhos = returns.corr()
-    n = rhos.shape[0]
-    rho_bar = (rhos.values.sum()-n)/(n*(n-1))
-    ccor = np.full_like(rhos, rho_bar)
-    np.fill_diagonal(ccor, 1.)
-    sd = returns.std()
-    ccov = ccor * np.outer(sd, sd)
-#     mh.corr2cov(ccor, sd)
-    return pd.DataFrame(ccov, index=returns.columns, columns=returns.columns)
-
-
-def get_shrunk_covariance_matrix(returns: pd.DataFrame, shrinkage_matrix: pd.DataFrame = None, lambda_=0.5):
-    """
-    Compute the shrunk covariance matrix, lambda = 0 for shrunk matrix, lambda = 1 for sample covariance matrix.
-
-    Args:
-        returns (pd.DataFrame): Returns data, columns are assets.
-        shrinkage_matrix: shrinkage matrix (ex: Elton/Gruber Constant Correlation matrix, default is identity matrix)
-        lambda_ (float): shrinkage factor (0 < lambda_ < 1, default 0.5).
-
-    Returns:
-        pd.DataFrame:  shrunk covariance matrix.
-    """
-    n = len(returns.columns)
-    if shrinkage_matrix is None:
-        shrinkage_matrix = np.identity(n)
-
-    returns = returns.drop(columns=['market'], errors='ignore')
-
-    cov = returns.cov()
-    return lambda_*cov + (1-lambda_)*shrinkage_matrix
 
 
 def compute_graphical_network(rets: pd.DataFrame, min_samples: int = 5) -> dict:
@@ -365,15 +305,46 @@ def get_additional_data(skins_price_data, additional_asset_names: list, start_da
 class AssetAnalysis:
     """ Class to manipulate assets
     """
-    COV_METHODS = {
-        'standard': lambda returns: returns.drop(columns=['market'], errors='ignore').cov(),
-        'ewma': lambda returns, lambda_=0.94: get_ewma_cov_matrix(returns, lambda_),
-        'shrunk_id': lambda returns, lambda_=0.5: get_shrunk_covariance_matrix(returns, None, lambda_),
-        'shrunk_constant_corr': lambda returns, lambda_=0.5: get_shrunk_covariance_matrix(returns, get_constant_corr_covmatrix(returns), lambda_)
+    # COV_METHODS = {
+    #     'standard': lambda returns: returns.drop(columns=['market'], errors='ignore').cov(),
+    #     'ewma': lambda returns, lambda_=0.94: CovEstimator.get_ewma_cov_matrix(returns, lambda_),
+    #     'shrunk_id': lambda returns, lambda_=0.5: CovEstimator.get_shrunk_covariance_matrix(returns, None, lambda_),
+    #     'shrunk_constant_corr': lambda returns, lambda_=0.5: CovEstimator.get_shrunk_covariance_matrix(returns, CovEstimator.get_constant_corr_covmatrix(returns), lambda_)
 
-    }
+    # }
+    # ER_METHODS = {
+    #     'standard': lambda returns: returns.drop(columns=['market'], errors='ignore').mean(),
+    #     'CAPM': lambda returns, lambda_=0.94: ExpectedReturns.get_expected_returns_CAPM(returns,self.marketret)
+    # }
 
-    def __init__(self, csv_or_df: str | pd.DataFrame, risk_free_rate: float = 0.0, resample_size='D', cov_method: Union[str, Callable] = 'standard', lambda_: float = 0.94, additional_asset_names: list[str] = None, additional_asset_names_start_end_data: list[str, str] = None):
+    def _load_method(self, method, method_dict, data, output_type, **kwargs):
+        """
+        Generic loader for methods like expected returns or covariance matrix.
+
+        Args:
+            method (str or callable): The method name or a custom function.
+            method_dict (dict): Dictionary mapping method names to functions.
+            data: Input data to pass to the function.
+            output_type: Expected return type (e.g., pd.DataFrame or pd.Series).
+            kwargs: Additional keyword args passed to the function.
+
+        Returns:
+            The result of the function (e.g., expected returns or cov matrix).
+        """
+        if isinstance(method, str):
+            if method not in method_dict:
+                raise ValueError(f"Method must be one of {list(method_dict.keys())} or a callable.")
+            result = method_dict[method](data, **kwargs)
+        elif callable(method):
+            result = method(data, **kwargs)
+        else:
+            raise ValueError("Method must be a string or a callable.")
+
+        if not isinstance(result, output_type):
+            raise ValueError(f"Returned object must be of type {output_type}")
+        return result
+
+    def __init__(self, csv_or_df: str | pd.DataFrame, risk_free_rate: float = 0.0, resample_size='D', cov_method: Union[str, Callable] = 'standard', er_method:Union[str, Callable]='capm',lambda_: float = 0.94, additional_asset_names: list[str] = None, additional_asset_names_start_end_data: list[str, str] = None):
         """
         Initializes the class by loading data and computing necessary values.
 
@@ -443,34 +414,31 @@ class AssetAnalysis:
             self.returns.copy(), self.marketret)
         self.market_price = (1 + self.marketret).cumprod()
         self.log_rets_and_market = np.log(1+self.rets_and_market)
-        # self.cov_matrix = self.rets_and_market.drop(columns='market').cov()
-        if isinstance(cov_method, str):
-            if cov_method not in self.COV_METHODS:
-                raise ValueError(
-                    f"cov_method must be one of {list(self.COV_METHODS.keys())} or a callable")
-            cov_func = self.COV_METHODS[cov_method]
-            if cov_method == 'ewma':
-                self.cov_matrix = cov_func(
-                    self.rets_and_market, lambda_=self.lambda_)
-            elif cov_method == 'shrunk_id':
-                self.cov_matrix = cov_func(
-                    self.returns, lambda_=self.lambda_)
-            elif cov_method == 'shrunk_constant_corr':
-                self.cov_matrix = cov_func(
-                    self.returns, lambda_=self.lambda_)
 
-            else:
-                self.cov_matrix = cov_func(
-                    self.rets_and_market)
-        elif callable(cov_method):
-            # Custom function: must return a pd.DataFrame
-            self.cov_matrix = cov_method(
-                self.rets_and_market)
-            if not isinstance(self.cov_matrix, pd.DataFrame):
-                raise ValueError(
-                    "Custom cov_method must return a pandas DataFrame")
-        else:
-            raise ValueError("cov_method must be a string or callable")
+        # -------------------------
+        #Covariance and expected returns estimation
+
+        self.COV_METHODS = {
+            'standard': lambda r, **_: r.drop(columns=['market'], errors='ignore').cov(),
+            'ewma': lambda r, lambda_=0.94, **_: CovEstimator.get_ewma_cov_matrix(r, lambda_),
+            'shrunk_id': lambda r, lambda_=0.5, **_: CovEstimator.get_shrunk_covariance_matrix(r, None, lambda_),
+            'shrunk_constant_corr': lambda r, lambda_=0.5, **_: CovEstimator.get_shrunk_covariance_matrix(
+                r, CovEstimator.get_constant_corr_covmatrix(r), lambda_),
+        }
+
+        self.ER_METHODS = {
+            'standard': lambda r, **_: r.drop(columns=['market'], errors='ignore').mean(),
+            'capm': lambda r, **_: ExpectedReturns.get_expected_returns_CAPM(r, self.marketret),
+            'historic_ewma': lambda r, **_: ExpectedReturns.get_expected_returns_historic_EWMA(r, lambda_),
+
+        }
+
+        self.cov_matrix = self._load_method(cov_method, self.COV_METHODS, self.rets_and_market,
+                                            pd.DataFrame, lambda_=self.lambda_)
+        self.expected_returns = self._load_method(er_method, self.ER_METHODS, self.returns,
+                                                  pd.Series, lambda_=self.lambda_)    
+        #------------------------------------------------------
+
 
         self.correlation_matrix = self.returns.corr()
         self.mvp = get_minimum_var_portfolio(
@@ -481,7 +449,7 @@ class AssetAnalysis:
 
         self.players = pd.read_csv(csv_path_players, index_col='Month')
         self.players.index = pd.to_datetime(self.players.index)
-        self.expected_returns = get_expected_returns_CAPM(self.returns, self.marketret, self.risk_free_rate)
+        self.expected_returns = ExpectedReturns.get_expected_returns_CAPM(self.returns, self.marketret, self.risk_free_rate)
 
     def plot_corr_matrix(self, figure_size=(25, 15)):
         """Plots the correlation matrix only when explicitly called."""
@@ -502,19 +470,20 @@ class AssetAnalysis:
         plot_efficient_frontier_2(
             self.returns, self.marketret, self.cov_matrix, n_points, effective_risk_free_rate)
 
-    def plot_market_decompose(self, data_type: str, model: str):
+    def plot_market_decompose(self, data_type: str, model: str,bar_scaling_factor):
         """Plot the market time series decomposition. Checks for stationarity, if p-value <0.05, time series is likely stationary
 
         Args:
             data_type (str): 'price' or 'returns'.
             model (str): 'additive' or 'multiplicative'.
+            bar_scaling_factor ( int) : the adjust the size of the scale bar.
         """
         if data_type == 'price':
             plot_time_series_decompose(
-                self.market_price, model, self.days_in_sample)
+                self.market_price, model, self.days_in_sample,bar_scaling_factor)
         elif data_type == 'returns':
             plot_time_series_decompose(
-                self.marketret, model, self.days_in_sample)
+                self.marketret, model, self.days_in_sample,bar_scaling_factor)
 
     def plot_market_ACF_PACF(self, data_type: str, lags=20):
         """Plot the market time series decomposition.
@@ -581,7 +550,39 @@ class AssetAnalysis:
             yaxis_type='log' if logscale else 'linear'
         )
 
-        fig.show()
+        # fig.show()
+        return fig
+    
+    def plot_returns_dist(self, bins, exclude_0=True, log_rets=False):
+        """Interactive plot of the distribution of all asset returns.
+        Args:
+            bins: Number of bins for the distribution plot.
+            exclude_0: 1 to exclude the returns equal to 0
+        """
+        all_returns = self.returns.melt(value_name="Returns")["Returns"].dropna()
+
+        if log_rets:
+            all_returns = np.log(1 + all_returns)
+        if exclude_0:
+            all_returns = all_returns[all_returns != 0]
+
+        # histogram
+        fig = px.histogram(
+            x=all_returns,
+            title="Distribution of All Asset Returns",
+            nbins=bins,
+            histnorm='probability density',
+        )
+        fig.update_traces(hoverinfo='x+y')
+        fig.update_layout(
+            xaxis_title='Returns',
+            yaxis_title='Density',
+            hovermode='x unified',
+            bargap=0.1,
+        )
+
+        # Instead of fig.show(), return it
+        return fig, all_returns.mean(), all_returns.std(), all_returns.skew(), all_returns.kurtosis()
 
     def plot_returns_distribution(self, bins, exclude_0=True, log_rets=False):
         """Interactive plot of the distribution of all asset returns.
@@ -590,34 +591,11 @@ class AssetAnalysis:
             exclude_0: 1 to exclude the returns equal to 0
         """
 
-        all_returns = self.returns.melt(value_name="Returns")[
-            "Returns"].dropna()
-        if log_rets:
-            all_returns = np.log(1 + all_returns)
-        if exclude_0:
-            all_returns = all_returns[all_returns != 0]
-
-        #  histogram
-        fig = px.histogram(
-            x=all_returns,
-            title="Distribution of All Asset Returns",
-            nbins=bins,
-            histnorm='probability density',  # normalize for density
-        )
-        fig.update_traces(
-            hoverinfo='x+y',
-        )
-        fig.update_layout(
-            xaxis_title='Returns',
-            yaxis_title='Density',
-            hovermode='x unified',
-            bargap=0.1,
-        )
-
-        fig.show()
-        print(f'mean={all_returns.mean()}, std={all_returns.std()}')
+        fi,ret_mean,ret_std,ret_slew,ret_kurt=self.plot_returns_dist(bins, exclude_0=exclude_0, log_rets=log_rets)
+        print(f'mean={ret_mean}, std={ret_std}')
         print(
-            f'skewness={all_returns.skew()}, kurtosis={all_returns.kurtosis()}')
+            f'skewness={ret_slew}, kurtosis={ret_kurt}')
+        return fi
 
     def Kmeans_PCA_plot(self, n_clusters: int):
         # Reduce dimensionality with PCA
@@ -637,12 +615,16 @@ class AssetAnalysis:
         plt.show()
 
     def plot_players(self, asset='market', log=0):
-        plot_players_and_asset(
+        return plot_players_and_asset(
             self.players['Change_pct'], self.rets_and_market[asset], log)
 
     def plot_graphical_network_assets(self, start_date: str):
         plot_graphical_network(self.returns[start_date:])
 
+    def portfolio_ER_and_vol(self,weights,expected_returns,cov_matrix):
+        ptf_return_ann = portfolio_return(weights, expected_returns)*self.days_in_sample
+        ptf_volatility_ann = portfolio_volatility(weights, cov_matrix)*np.sqrt(self.days_in_sample)
+        return ptf_return_ann,ptf_volatility_ann
     def get_weights_portfolio(self,portfolio_type:str):
         """ get portfolio weights 
         Args:
@@ -652,17 +634,20 @@ class AssetAnalysis:
         if portfolio_type=='mvp':
             weights = np.round(pd.Series(self.mvp [0],index=self.skins_and_assets_names),4)
         elif portfolio_type=='equal weight':
-            weights = np.round(get_equal_weight_pf(self.returns),4)
+            weights = np.round(WeightFunctions.get_equal_weight_pf(self.returns),4)
         elif portfolio_type=='max sharp':
-            weights=np.round(get_max_sharpe_portfolio(self.returns,self.risk_free_rate,self.days_in_sample,config.MIN_VOL_THRESHOLD,self.expected_returns,self.cov_matrix),4)
+            weights=np.round(WeightFunctions.get_max_sharpe_portfolio(self.returns,self.risk_free_rate,self.days_in_sample,config.MIN_VOL_THRESHOLD,self.expected_returns,self.cov_matrix),4)
         else:
             raise ValueError("portfolio_type not supported")
-        return weights
+        ptf_return_ann,ptf_volatility_ann = self.portfolio_ER_and_vol(weights,self.expected_returns,self.cov_matrix)
+        return weights,ptf_return_ann,ptf_volatility_ann
             
     def find_skins_quantity_portfolio_and_plot(self,available_funds,portfolio_type:str):
-        weights = self.get_weights_portfolio(portfolio_type)
+        weights,ptf_return_ann,ptf_volatility_ann = self.get_weights_portfolio(portfolio_type)
         quantity,cost,actual_weight,mean_diff_with_actual_weight=find_skins_quantity(available_funds,weights,self.data)
 
         print("skins quantity to buy", quantity)
         print("mean difference between theoretical optimal portfolio and actual portfolio", mean_diff_with_actual_weight)
-        plot_skins_quantity(quantity)
+        return plot_skins_quantity(quantity),ptf_return_ann,ptf_volatility_ann
+
+

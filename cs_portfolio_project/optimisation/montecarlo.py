@@ -1,9 +1,11 @@
 import numpy as np
 import pandas as pd
+import inspect
 
 from typing import Callable, Dict, Any, Optional
 import matplotlib.pyplot as plt
 from cs_portfolio_project.config import config  
+from cs_portfolio_project.optimisation.estimator_functions import *
 
 
 def find_portfolio_weights_and_value(skins: list, quantity: list, asset_prices: pd.DataFrame):
@@ -231,8 +233,20 @@ def simulate_portfolio_performance(
     else:
         cov_matrix = rets_copy.cov()
 
-    weights = weight_func(**weight_func_kwargs)
+    candidate_args = {
+        "rets": rets_copy,
+        "expected_returns": expected_returns,
+        "cov_matrix": cov_matrix,
+        **weight_func_kwargs
+    }
 
+    # valid args for weight_func
+    sig = inspect.signature(weight_func)
+    valid_args = {k: v for k, v in candidate_args.items()
+                    if k in sig.parameters}
+    weights = weight_func(**valid_args)
+    print(weights)
+    print(weights.shape,expected_returns.shape,cov_matrix.shape)
     portfolio_sims = monte_carlo_simulation(
         expected_returns, cov_matrix, weights, initial_portfolio_value, number_of_sims, sim_timeframe, log)
     portfolio_sims_last = portfolio_sims[-1, :]
@@ -252,7 +266,7 @@ def simulate_portfolio_performance(
         'conditional_VAR_5_pct': conditional_VAR_5_pct,
         "probability_of_loss": prob_loss
     }
-    plot_simulation_results(portfolio_sims)
-    return portfolio_sims, sim_information
+    # plot_simulation_results(portfolio_sims)
+    return portfolio_sims, sim_information,plot_simulation_results(portfolio_sims)
 
 # ['fracture','shadow','huntsman_weapon','falchion'],[200,100,10,40]
