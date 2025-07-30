@@ -231,6 +231,38 @@ def kmean_clustering(n_clusters, distance_matrix):
     clusters = kmeans.fit_predict(distance_matrix)
     return clusters
 
+def empirical_lower_tail_dependence(returns, q=0.05):
+    assets = returns.columns
+    n = len(assets)
+    tail_dep = pd.DataFrame(np.zeros((n, n)), index=assets, columns=assets)
+
+    for i in range(n):
+        for j in range(i, n):
+            r_i = returns.iloc[:, i]
+            r_j = returns.iloc[:, j]
+            thresh_i = r_i.quantile(q)
+            thresh_j = r_j.quantile(q)
+            count_joint = ((r_i < thresh_i) & (r_j < thresh_j)).sum()
+            count_i = (r_i < thresh_i).sum()
+            dep = count_joint / count_i if count_i > 0 else 0
+            tail_dep.iloc[i, j] = dep
+            tail_dep.iloc[j, i] = dep
+    return tail_dep
+
+def minimize_tail_dependence(tail_matrix):
+    n = len(tail_matrix)
+    init_weights = np.ones(n) / n
+    bounds = [(0, 1)] * n
+    constraints = {'type': 'eq', 'fun': lambda w: np.sum(w) - 1}
+
+    def tail_risk_objective(w):
+        return w @ tail_matrix.values @ w
+
+    res = minimize(tail_risk_objective, init_weights,
+                   method='SLSQP',
+                   bounds=bounds,
+                   constraints=[constraints])
+    return pd.Series(res.x, index=tail_matrix.columns)
 
 class WeightFunctions:
 
@@ -385,6 +417,20 @@ class WeightFunctions:
 
         weights = pd.Series(data=result.x, index=valid_assets)
         return weights
+    
+    @staticmethod
+    def get_minimum_tail_dependence(rets,quantile=0.05):
+            
+        """
+        Calculate the portfolio weights that minimizes empiric pairwise tail dependance (lower tail).
+        Args:
+            rets (pd.DataFrame): DataFrame with asset returns.
+            quantitle (float): tail qunatile.
+        returns:
+            pd.Series: Portfolio weights, indexed by asset names, or None if optimization fails.
+        """
+        tail_matrix = empirical_lower_tail_dependence(rets,quantile)
+        return minimize_tail_dependence(tail_matrix)
 
 # def get_mvp(rets: pd.DataFrame, min_vol_threshold=1e-6):
 #     """ find the minimum variance portofilio compisition
@@ -502,14 +548,16 @@ def backtest(
             continue
 
         # Drop assets that are not traded yet (NaNs in this period) and with no vol (price is constant)
+        
         period_data = period_data.dropna(axis=1, how='any')
+        # print(period_data)
         period_vol = period_data.std()
         valid_asset = period_vol[period_vol > 1e-6].index
         period_data = period_data[valid_asset]
         # invalid_asset = period_vol[period_vol<1e-6].index
         # print(invalid_asset)
         if period_data.shape[1] == 0:
-            print(f"No assets traded in period {period_start}")
+            print(f"No assets traded in period: {period_start} start")
             continue
 
         try:

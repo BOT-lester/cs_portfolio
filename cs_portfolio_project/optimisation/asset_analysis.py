@@ -7,7 +7,7 @@ from cs_portfolio_project.optimisation.portfolio import *
 from cs_portfolio_project.optimisation.time_series import *
 from cs_portfolio_project.optimisation.montecarlo import *
 from cs_portfolio_project.optimisation.estimator_functions import *
-
+import random
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -75,7 +75,7 @@ def mdd(x):
 def asset_information(returns, days_in_sample=365):
     """ compute total returns, avg returns (daily and ann), std (ann), max draw down """
     df = pd.DataFrame(index=returns.columns)
-    df['total returns'] = (returns+1).cumprod().iloc[-1]
+    df['total returns'] = (returns+1).cumprod().ffill().iloc[-1]
     df['average returns'] = returns.mean()
     df['average returns (ann)'] = (
         returns.mean()+1)**days_in_sample-1  # geometric annualization
@@ -96,7 +96,7 @@ def plot_correlation_matrix(correlation_matrix, figure_size=(25, 15)):
     plt.figure(figsize=figure_size)
     sns.heatmap(correlation_matrix, annot=True, cmap='coolwarm',
                 vmin=-1, vmax=1, center=0, fmt='.2f')
-    plt.title('Correlation Matrix of Item Returns')
+    plt.title('Correlation (historic) Matrix of Item Returns')
     plt.tight_layout()
     plt.show()
 
@@ -393,14 +393,16 @@ class AssetAnalysis:
 
         else:
             effective_resample_size = resample_size
-
+        def replace_zeros_with_random(x):
+            return random.normalvariate(0, 0.002) if x == 0 else x
         # Compute returns based on effective resample size
         if effective_resample_size == 'D':
-            self.returns = self.data.pct_change().dropna(how='all')
+            self.returns = self.data.pct_change().dropna(how='all').applymap(replace_zeros_with_random)
         else:
             self.returns = ((self.data.pct_change().dropna(how='all') + 1)
                             .resample(effective_resample_size)
-                            .prod() - 1).replace(0, np.nan)
+                            .prod() - 1).applymap(replace_zeros_with_random)
+            
         self.skins_and_assets_names = self.returns.columns
 
         # if effective_resample_size == 'B':
@@ -433,7 +435,7 @@ class AssetAnalysis:
 
         }
 
-        self.cov_matrix = self._load_method(cov_method, self.COV_METHODS, self.rets_and_market,
+        self.cov_matrix = self._load_method(cov_method, self.COV_METHODS, self.returns,
                                             pd.DataFrame, lambda_=self.lambda_)
         self.expected_returns = self._load_method(er_method, self.ER_METHODS, self.returns,
                                                   pd.Series, lambda_=self.lambda_)    
@@ -564,7 +566,7 @@ class AssetAnalysis:
         if log_rets:
             all_returns = np.log(1 + all_returns)
         if exclude_0:
-            all_returns = all_returns[all_returns != 0]
+            all_returns = all_returns[all_returns.abs() >= 0.0025]
 
         # histogram
         fig = px.histogram(
@@ -628,15 +630,15 @@ class AssetAnalysis:
     def get_weights_portfolio(self,portfolio_type:str):
         """ get portfolio weights 
         Args:
-            portfolio_type= 'mvp','equal weight','max sharp'
+            portfolio_type= 'minimum variance','equal weight','max sharp'
             
         """
-        if portfolio_type=='mvp':
-            weights = np.round(pd.Series(self.mvp [0],index=self.skins_and_assets_names),4)
+        if portfolio_type=='minimum variance':
+            weights = np.round(pd.Series(self.mvp [0],index=self.skins_and_assets_names),2)
         elif portfolio_type=='equal weight':
-            weights = np.round(WeightFunctions.get_equal_weight_pf(self.returns),4)
+            weights = np.round(WeightFunctions.get_equal_weight_pf(self.returns),2)
         elif portfolio_type=='max sharp':
-            weights=np.round(WeightFunctions.get_max_sharpe_portfolio(self.returns,self.risk_free_rate,self.days_in_sample,config.MIN_VOL_THRESHOLD,self.expected_returns,self.cov_matrix),4)
+            weights=np.round(WeightFunctions.get_max_sharpe_portfolio(self.returns,self.risk_free_rate,self.days_in_sample,config.MIN_VOL_THRESHOLD,self.expected_returns,self.cov_matrix),2)
         else:
             raise ValueError("portfolio_type not supported")
         ptf_return_ann,ptf_volatility_ann = self.portfolio_ER_and_vol(weights,self.expected_returns,self.cov_matrix)
@@ -648,6 +650,6 @@ class AssetAnalysis:
 
         print("skins quantity to buy", quantity)
         print("mean difference between theoretical optimal portfolio and actual portfolio", mean_diff_with_actual_weight)
-        return plot_skins_quantity(quantity),ptf_return_ann,ptf_volatility_ann
+        return plot_skins_quantity(quantity),ptf_return_ann,ptf_volatility_ann,quantity
 
 

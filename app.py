@@ -20,11 +20,11 @@ st.title("CS2 Skins Portfolio Analysis Web App")
 
 #  Sidebar
 st.sidebar.header("Data Selection")
-data_type = st.sidebar.selectbox("Choose data type", ["cases", "agents"])
+data_type = st.sidebar.selectbox("Choose data type", ["cases2", "agents","cases_and_agents_mkt"])
 data_path = f"data/processed/D/{data_type}.csv"
 
 risk_free_rate = st.sidebar.number_input("Risk-free rate", value=0.0)
-resample_size = st.sidebar.selectbox("Resample size", ["D", "B", "W", "M"], index=0)
+resample_size = st.sidebar.selectbox("Resample size", ["D", "W","B", "M",'Y'], index=0)
 cov_method = st.sidebar.selectbox("Covariance method", ["standard", "ewma", "shrunk_id", "shrunk_constant_corr"], index=0)
 er_method = st.sidebar.selectbox("Expected returns method", ["capm", "standard", "historic_ewma"], index=0)
 
@@ -40,23 +40,28 @@ if "additional_asset_names" not in st.session_state:
 if "additional_asset_names_start_end_data" not in st.session_state:
     st.session_state.additional_asset_names_start_end_data = ["", ""]
 
-st.sidebar.markdown("### Add Additional Assets")
-options = list(config.ASSET_LABEL_TO_TICKER.keys())
-selected_labels = st.sidebar.multiselect("Choose assets to add", options)
-selected_tickers = [config.ASSET_LABEL_TO_TICKER[label] for label in selected_labels]
-# Store selected assets
+# = st.sidebar.checkbox("Use expected returns function")
+
+add_assets_button = st.sidebar.checkbox("### Add additional non CS assets")
+if add_assets_button:
+    options = list(config.ASSET_LABEL_TO_TICKER.keys())
+    selected_labels = st.sidebar.multiselect("Choose assets to add", options)
+    selected_tickers = [config.ASSET_LABEL_TO_TICKER[label] for label in selected_labels]
+    # Store selected assets
 
 
-# Sidebar: Select start and end date
-start_date = st.sidebar.date_input("Start date for additional assets", value=datetime(2020, 1, 1))
-end_date = st.sidebar.date_input("End date for additional assets", value=datetime.today())
+    # Sidebar: Select start and end date
+    start_date = st.sidebar.date_input("Start date for additional assets", value=datetime(2020, 1, 1))
+    end_date = st.sidebar.date_input("End date for additional assets", value=datetime.today())
 
 # Save date selection
-if selected_tickers:
-    st.session_state.additional_asset_names = selected_tickers
-    st.session_state.additional_asset_names_start_end_data = [
-        str(start_date), str(end_date)
-    ]
+    if selected_tickers :
+        st.session_state.additional_asset_names = selected_tickers
+        st.session_state.additional_asset_names_start_end_data = [
+            str(start_date), str(end_date)
+        ]
+    else:
+        st.sidebar.write('Please select additional assets')
 else:
     # Set to None to be cleanly ignored by AssetAnalysis if no assets selected
     st.session_state.additional_asset_names = None
@@ -82,13 +87,13 @@ if st.sidebar.button("Run Analysis"):
 if st.session_state.aa:
     plot_choice = st.sidebar.selectbox(
         "Choose a plot to display",
-        [
+        [   "information",
             "Correlation Matrix",
             "Efficient Frontier",
             "Market ACF/PACF",
             "Market Decomposition",
             "Correlation With Market",
-            "Alpha and Beta",
+            "Alpha and Beta (CAPM)",
             "Market Volatility",
             "Asset Price Plot",
             "Returns Distribution",
@@ -109,6 +114,12 @@ if st.session_state.aa:
         plt.figure()
         aa.plot_corr_matrix()
         st.pyplot(plt.gcf())
+
+    if plot_choice == "information":
+        st.subheader("information")
+        st.dataframe(aa.information)
+        st.subheader("market information")
+        st.dataframe(asset_information(pd.DataFrame(aa.marketret),aa.days_in_sample),hide_index=True)
 
     elif plot_choice == "Efficient Frontier":
         st.subheader("Efficient Frontier")
@@ -193,14 +204,22 @@ if st.session_state.aa:
         st.pyplot(plt.gcf())
 
     elif plot_choice == "Skins Quantity Portfolio Plot":
-        portfolio_type = st.selectbox("Portfolio type", ["mvp", "equal weight", "max sharp"])
+        portfolio_type = st.selectbox("Portfolio type", ["minimum variance", "equal weight", "max sharp"])
         funds = st.number_input("Available funds ($)", value=1000)
         st.write("Computing portfolio allocation...")
-        skins_quantity_plot,ptf_return_ann,ptf_volatility_ann=aa.find_skins_quantity_portfolio_and_plot(available_funds=funds, portfolio_type=portfolio_type)
+        weights = aa.get_weights_portfolio(portfolio_type=portfolio_type)[0]
+        fig1, ax1 = plt.subplots()
+        weights.plot.pie(autopct='%1.1f%%', ylabel='', ax=ax1)
+        st.pyplot(fig1)
+        plt.close(fig1)
+        skins_quantity_plot,ptf_return_ann,ptf_volatility_ann,quantity=aa.find_skins_quantity_portfolio_and_plot(available_funds=funds, portfolio_type=portfolio_type)
         
-        st.pyplot(plt.gcf())
-        st.write(f"Annualized expected returns:{ptf_return_ann:.4f}",)
-        st.write(f"Annualized expected returns:{ptf_volatility_ann::.4f}")
+        st.pyplot(skins_quantity_plot)
+        st.write(f"Annualized expected returns: {ptf_return_ann:.4f}",)
+        st.write(f"Annualized volatilty: {ptf_volatility_ann:.4f}")
+        w_and_q_df = pd.concat([weights,quantity],axis=1)
+        w_and_q_df.columns = ['weights','quantity']
+        st.dataframe(w_and_q_df)
 
         
     # elif plot_choice == "Backtest vs Equal Weight":
@@ -227,8 +246,8 @@ if st.session_state.aa:
     #     st.pyplot(fig)
     elif plot_choice == "Backtest vs Equal Weight":
 
-        st.subheader("Backtest Parameters")
-
+        st.subheader("Backtest Parameters") 
+        start_date_backtest = st.date_input("Start date for backtest", value=datetime(2013, 11, 21))
         rebalancing = st.selectbox("Rebalancing frequency", ['M', 'Q', '6M', 'YE'])
         risk_free = st.number_input("Risk-free rate", value=0.0)
         days = st.number_input("Annualization days", value=365)
@@ -293,6 +312,7 @@ if st.session_state.aa:
         else:
             expected_returns_func = None
             exp_kwargs = {}
+            is_bl= False
 
         # ------------------------------------------
         # Covariance Function
@@ -335,11 +355,16 @@ if st.session_state.aa:
             }
         # ------------------------------------------
         # Plotting
-
+        st.markdown("### Other Assets for comparison")
+        options = list(config.ASSET_LABEL_TO_TICKER.keys())
+        selected_labels_backtest = st.multiselect("Choose assets to add to backtest graph", options)
+        selected_tickers_for_backtest = [config.ASSET_LABEL_TO_TICKER[label] for label in selected_labels_backtest]
+        if selected_tickers_for_backtest == []:
+            selected_tickers_for_backtest=None
         if st.button("Run Backtest"):
             fig = plot_backtest_vs_eq_webapp(
-                rets=aa.returns,
-                market=marketret,
+                rets=aa.returns[start_date_backtest:],
+                market=marketret[start_date_backtest:],
                 weight_func=weight_func,
                 rebalancing=rebalancing,
                 risk_free_rate=risk_free,
@@ -348,7 +373,8 @@ if st.session_state.aa:
                 expected_returns_kwargs=exp_kwargs,
                 covariance_func=covariance_func,
                 covariance_kwargs=cov_kwargs,
-                weight_func_kwargs=weight_func_kwargs
+                weight_func_kwargs=weight_func_kwargs,
+                other_comparison_asset=selected_tickers_for_backtest
             )
 
             st.pyplot(fig)
@@ -360,8 +386,8 @@ if st.session_state.aa:
         # Risk-Free Rate
         risk_free = st.number_input("Risk-free rate", value=0.0)
         initial_portfolio_value = st.number_input("initial portfolio value", value=100.0)
-        number_of_sims = st.slider("number of simulations",  10, 200, 50)
-        sim_timeframe=st.number_input("number of days to simulate", value=365)
+        number_of_sims = st.slider("number of simulations",  10, 500, 100)
+        sim_timeframe=st.number_input("number of periods to simulate", value=365)
         
         log = st.checkbox("use log returns")
         days = st.number_input("Annualization days", value=365)
@@ -414,45 +440,88 @@ if st.session_state.aa:
 
         # ------------------------------------------
         # Expected Returns Function
+
         use_exp_func = st.checkbox("Use expected returns function")
         if use_exp_func:
-            exp_func_name = st.selectbox("Expected Returns Function", ['get_expected_returns_CAPM', 'default'])
-            if exp_func_name == 'get_expected_returns_CAPM':
+            exp_func_name = st.selectbox("Expected Returns Function", ['CAPM expected returns', 'default','Black Litterman','EWMA historic returns'])
+            is_bl = exp_func_name == 'Black Litterman'
+
+            if exp_func_name == 'EWMA historic returns':
+                expected_returns_func = ExpectedReturns.get_expected_returns_historic_EWMA
+                lambda_ewma_rets = st.slider("EWMA lambda ER", min_value=0.100, max_value=0.999, value=0.940)
+                exp_kwargs = {"lambda_": lambda_ewma_rets}
+            elif exp_func_name == 'CAPM expected returns':
                 expected_returns_func = ExpectedReturns.get_expected_returns_CAPM
                 exp_kwargs = {
                     "risk_free_rate": risk_free,
                     "market_rets": aa.marketret
                 }
+            elif exp_func_name == 'Black Litterman':
+                expected_returns_func = get_bl_mu
+                asset_names = aa.returns.columns.tolist()
+                skin_BL = {}
+                valid_assets = []
+
+                for asset in asset_names:
+                    # weight = st.slider(f"Weight for {asset}", 0.0, 1.0, 0.0, 0.01)
+                    BL_outperformance = st.number_input(f"outperformance of asset {asset} ", value=0.00000,step=0.0001, format="%.6f")
+                    
+                    if BL_outperformance != 0.0:
+                        skin_BL[asset] = BL_outperformance
+                exp_kwargs = {
+
+                    "market_rets": marketret,
+                    "outperforming_assets":list(skin_BL.keys()),
+                    "outperformance_values":list(skin_BL.values())
+                }
+                
             else:
                 expected_returns_func = None
                 exp_kwargs = {}
         else:
             expected_returns_func = None
             exp_kwargs = {}
+            is_bl= False
 
         # ------------------------------------------
         # Covariance Function
-        use_cov_func = st.checkbox("Use covariance function")
-        if use_cov_func:
-            cov_func_name = st.selectbox("Covariance Function", ['get_ewma_cov_matrix', 'get_shrunk_covariance_matrix_identity', 'get_shrunk_covariance_matrix_constant_corr','default'])
-            if cov_func_name == 'get_ewma_cov_matrix':
-                covariance_func = CovEstimator.get_ewma_cov_matrix
-                lambda_ewma = st.slider("EWMA lambda", min_value=0.8, max_value=0.99, value=0.94)
-                cov_kwargs = {"lambda_": lambda_ewma}
-            elif cov_func_name == 'get_shrunk_covariance_matrix_identity':
-                covariance_func =  CovEstimator.get_shrunk_covariance_matrix_identity
-                lambda_shrink = st.slider("Shrinkage lambda", min_value=0.0, max_value=1.0, value=0.5)
-                cov_kwargs = {"lambda_": lambda_shrink}
-            elif cov_func_name == 'get_shrunk_covariance_matrix_constant_corr':
-                covariance_func =  CovEstimator.get_shrunk_covariance_matrix_constant_corr
-                lambda_shrink = st.slider("Shrinkage lambda", min_value=0.0, max_value=1.0, value=0.5)
-                cov_kwargs = {"lambda_": lambda_shrink}
+        if not is_bl:
+            use_cov_func = st.checkbox("Use covariance function")
+            if use_cov_func:
+                cov_func_name = st.selectbox("Covariance Function", ['get_ewma_cov_matrix', 'get_shrunk_covariance_matrix_identity', 'get_shrunk_covariance_matrix_constant_corr','default',"Black Litterman"])
+                if cov_func_name == 'get_ewma_cov_matrix':
+                    covariance_func = CovEstimator.get_ewma_cov_matrix
+                    lambda_ewma = st.slider("EWMA lambda COV", min_value=0.1, max_value=0.999, value=0.94)
+                    cov_kwargs = {"lambda_": lambda_ewma}
+                elif cov_func_name == 'get_shrunk_covariance_matrix_identity':
+                    covariance_func =  CovEstimator.get_shrunk_covariance_matrix_identity
+                    lambda_shrink = st.slider("Shrinkage lambda", min_value=0.0, max_value=1.0, value=0.5)
+                    cov_kwargs = {"lambda_": lambda_shrink}
+                elif cov_func_name == 'get_shrunk_covariance_matrix_constant_corr':
+                    covariance_func =  CovEstimator.get_shrunk_covariance_matrix_constant_corr
+                    lambda_shrink = st.slider("Shrinkage lambda", min_value=0.0, max_value=1.0, value=0.5)
+                    cov_kwargs = {"lambda_": lambda_shrink}
+                elif cov_func_name=="Black Litterman":
+                    covariance_func =  get_bl_sigma
+
+                    cov_kwargs = {
+                        "market_rets": aa.marketret,
+                        "outperforming_assets":list(skin_BL.keys()),
+                        "outperformance_values":list(skin_BL.values())
+                    }
+                else:
+                    covariance_func = None
+                    cov_kwargs = {}
             else:
                 covariance_func = None
                 cov_kwargs = {}
         else:
-            covariance_func = None
-            cov_kwargs = {}
+            covariance_func = get_bl_sigma
+            cov_kwargs = {
+                "market_rets": aa.marketret,
+                "outperforming_assets": list(skin_BL.keys()),
+                "outperformance_values": list(skin_BL.values())
+            }
 
 
 
@@ -473,6 +542,7 @@ if st.session_state.aa:
             )
 
             st.pyplot(fig)
+            st.write(MC_sim_info)
     
     if plot_choice == "Black Litterman":
 
