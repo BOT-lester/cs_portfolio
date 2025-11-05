@@ -18,6 +18,8 @@ from sklearn import covariance, cluster, manifold
 from matplotlib.collections import LineCollection
 from cs_portfolio_project.config import config
 import yfinance as yf
+from scipy.stats import norm
+
 project_root = Path(__file__).resolve().parents[2]
 
 
@@ -26,16 +28,15 @@ def calculate_market_returns(returns: pd.DataFrame) -> pd.Series:
     """
     market_returns = pd.Series(index=returns.index, dtype=float)
     for date in returns.index:
-        # Get available assets (non-NaN returns) for this date
         available_returns = returns.loc[date].dropna()
         n_assets = len(available_returns)
         if n_assets > 0:
             # Equal weights for available assets
             weights = np.array([1/n_assets] * n_assets)
-            # Calculate market return for this date
+            # market return for this date
             market_returns.loc[date] = (available_returns * weights).sum()
         else:
-            market_returns.loc[date] = np.nan  # No data available
+            market_returns.loc[date] = np.nan 
     return market_returns
 
 
@@ -120,7 +121,7 @@ def plot_players_and_asset(players_pctchange, asset_returns, log=0):
         asset_cum_log = np.log(asset_cum_log)
     fig = make_subplots(specs=[[{"secondary_y": True}]])
 
-    # players' cumulative log returns (left y-axis)
+    # players cumulative returns
     fig.add_trace(
         go.Scatter(x=players_pctchange.index, y=players_cum_log,
                    name="Players Cumulative Returns", line=dict(color="blue")),
@@ -137,7 +138,7 @@ def plot_players_and_asset(players_pctchange, asset_returns, log=0):
     fig.update_layout(
         title_text="Cumulative Returns: Players vs Asset",
         xaxis_title="Date",
-        legend=dict(x=0.01, y=0.99),  # Position legend inside plot
+        legend=dict(x=0.01, y=0.99), 
     )
     fig.update_yaxes(title_text="Players Returns", secondary_y=False)
     fig.update_yaxes(title_text="Asset Returns", secondary_y=True)
@@ -167,8 +168,6 @@ def compute_graphical_network(rets: pd.DataFrame, min_samples: int = 5) -> dict:
 
     names = np.array(X.columns)
     print('Number of assets examined:', X.shape[1])
-
-    # Standardize returns
     X_std = X / X.std(axis=0)
     X_std = X_std.fillna(0)
 
@@ -183,7 +182,6 @@ def compute_graphical_network(rets: pd.DataFrame, min_samples: int = 5) -> dict:
     embedding = manifold.MDS(
         n_components=2, random_state=0).fit_transform(X_std.T).T
 
-    # Partial correlations
     prec = edge_model.precision_.copy()
     d = 1 / np.sqrt(np.diag(prec))
     partial_corr = prec * d
@@ -367,7 +365,7 @@ class AssetAnalysis:
                 None).dropna(how='all')
 
         elif isinstance(csv_or_df, pd.DataFrame):
-            # If a DataFrame is provided, use it directly
+            # If a DataFrame is provided
             self.data = csv_or_df.copy()
             self.data.index = self.data.index.tz_localize(
                 None).dropna(how='all')
@@ -508,6 +506,7 @@ class AssetAnalysis:
     def plot_alpha_and_beta(self):
         """Plot alpha and beta coefficients."""
         plot_alpha_beta(self.alpha_and_beta())
+        
 
     def plot_market_vol(self, rolling_window=15):
         "plot volatility of market"
@@ -568,23 +567,38 @@ class AssetAnalysis:
         if exclude_0:
             all_returns = all_returns[all_returns.abs() >= 0.0025]
 
-        # histogram
+        mean = all_returns.mean()
+        std = all_returns.std()
+        skew = all_returns.skew()
+        kurt = all_returns.kurtosis()
         fig = px.histogram(
             x=all_returns,
             title="Distribution of All Asset Returns",
             nbins=bins,
-            histnorm='probability density',
+            histnorm='probability density'
         )
+
+        # Normal dist 
+        x_range = np.linspace(all_returns.min(), all_returns.max(), 300)
+        normal_pdf = norm.pdf(x_range, mean, std)
+
+        fig.add_trace(go.Scatter(
+            x=x_range,
+            y=normal_pdf,
+            mode='lines',
+            name='Normal Distribution',
+            line=dict(color='red', width=2, dash='dash')
+        ))
+
         fig.update_traces(hoverinfo='x+y')
         fig.update_layout(
             xaxis_title='Returns',
             yaxis_title='Density',
             hovermode='x unified',
-            bargap=0.1,
+            bargap=0.1
         )
 
-        # Instead of fig.show(), return it
-        return fig, all_returns.mean(), all_returns.std(), all_returns.skew(), all_returns.kurtosis()
+        return fig, mean, std, skew, kurt
 
     def plot_returns_distribution(self, bins, exclude_0=True, log_rets=False):
         """Interactive plot of the distribution of all asset returns.

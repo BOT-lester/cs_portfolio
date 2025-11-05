@@ -59,3 +59,21 @@ cp .env.example .env
 5. Find any request to `steamcommunity.com`
 6. Copy the `sessionid` and `steamLoginSecure` cookies
 7. Add them to your `.env` file:
+
+
+## Web Application (Streamlit)
+
+This project includes an interactive Streamlit dashboard for exploring CS2 assets, analyzing returns, and running portfolio optimizations visually. More in depth explanations are in the notebook.
+
+### Launch the App
+
+Make sure your virtual environment is activated and dependencies installed:
+
+```bash
+streamlit run app.py
+
+![Dashboard Preview](assets/screenshots/main_section_streamlit.png)
+
+![Dashboard Preview](assets/screenshots/main_plots.png)
+
+![Dashboard Preview](assets/screenshots/backtest_params.png)
