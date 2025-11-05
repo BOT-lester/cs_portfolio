@@ -71,7 +71,7 @@ Make sure your virtual environment is activated and dependencies installed:
 
 ```bash
 streamlit run app.py
-
+```
 ![Dashboard Preview](assets/screenshots/main_section_streamlit.png)
 
 ![Dashboard Preview](assets/screenshots/main_plots.png)
