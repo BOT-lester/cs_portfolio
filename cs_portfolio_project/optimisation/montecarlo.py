@@ -1,9 +1,11 @@
 import numpy as np
 import pandas as pd
+import inspect
 
 from typing import Callable, Dict, Any, Optional
 import matplotlib.pyplot as plt
 from cs_portfolio_project.config import config  
+from cs_portfolio_project.optimisation.estimator_functions import *
 
 
 def find_portfolio_weights_and_value(skins: list, quantity: list, asset_prices: pd.DataFrame):
@@ -51,20 +53,22 @@ def find_skins_quantity(available_funds:float,weights:pd.Series,asset_prices: pd
     abs_diff = np.abs(weights - actual_weight) 
     return quantity,cost,actual_weight,np.mean(abs_diff)
 
-def plot_skins_quantity(quantity:pd.Series):
-
+def plot_skins_quantity(quantity: pd.Series):
     filtered_series = quantity[quantity > 0]
     labels = filtered_series.index
     quantities = filtered_series.values
-    plt.bar(labels, quantities, edgecolor="black")
-    plt.xlabel("Assets")
-    plt.xticks(rotation=90)
-    plt.ylabel("Quantity (Whole Units)")
-    plt.title("Portfolio Asset Quantities (Non-Zero)")
-    plt.ylim(0, max(quantities) * 1.1)  
-    plt.grid(True, axis="y", linestyle="--", alpha=0.7)
-    plt.tight_layout()
-    plt.show()
+
+    fig, ax = plt.subplots()  
+    ax.bar(labels, quantities, edgecolor="black")
+    ax.set_xlabel("Assets")
+    ax.set_ylabel("Quantity (Whole Units)")
+    ax.set_title("Portfolio Asset Quantities (Non-Zero)")
+    ax.set_ylim(0, max(quantities) * 1.1)
+    ax.grid(True, axis="y", linestyle="--", alpha=0.7)
+    ax.tick_params(axis='x', rotation=90)
+    fig.tight_layout()
+
+    return fig 
 
 
 def plot_portfolio_pie(weights: pd.Series,figure_size:tuple=(8,8)):
@@ -152,7 +156,7 @@ def max_drawdown(portfolio_path):
 def plot_simulation_results(portfolio_sims):
     final_values = portfolio_sims[-1]
 
-    fig, axs = plt.subplots(1, 2, figsize=(14, 5))
+    fig, axs = plt.subplots(1, 2, figsize=(20, 10))
 
     axs[0].plot(portfolio_sims)
     axs[0].set_title('Monte Carlo Simulation Paths')
@@ -163,7 +167,7 @@ def plot_simulation_results(portfolio_sims):
     axs[1].set_xlabel('Final Portfolio Value ($)')
     axs[1].set_ylabel('Frequency')
     plt.tight_layout()
-    plt.show()
+    return fig
 
 
 def simulate_portfolio_performance(
@@ -187,7 +191,7 @@ def simulate_portfolio_performance(
         weight_func (Callable): Function that returns portfolio weights.
         initial_portfolio_value (float): Starting value of the portfolio.
         number_of_sims (int): Number of simulation paths. Default is 100.
-        sim_timeframe (int): Number of days to simulate. Default is 365.
+        sim_timeframe (int): Number of periods to simulate. Default is 365.
         log (bool): If True, uses log-normal returns. Otherwise, uses simple returns.
         expected_returns_func (Callable, optional): Custom function to compute expected returns.
         covariance_func (Callable, optional): Custom function to compute the covariance matrix.
@@ -231,8 +235,20 @@ def simulate_portfolio_performance(
     else:
         cov_matrix = rets_copy.cov()
 
-    weights = weight_func(**weight_func_kwargs)
+    candidate_args = {
+        "rets": rets_copy,
+        "expected_returns": expected_returns,
+        "cov_matrix": cov_matrix,
+        **weight_func_kwargs
+    }
 
+    # valid args for weight_func
+    sig = inspect.signature(weight_func)
+    valid_args = {k: v for k, v in candidate_args.items()
+                    if k in sig.parameters}
+    weights = weight_func(**valid_args)
+    # print(weights)
+    # print(weights.shape,expected_returns.shape,cov_matrix.shape)
     portfolio_sims = monte_carlo_simulation(
         expected_returns, cov_matrix, weights, initial_portfolio_value, number_of_sims, sim_timeframe, log)
     portfolio_sims_last = portfolio_sims[-1, :]
@@ -252,7 +268,7 @@ def simulate_portfolio_performance(
         'conditional_VAR_5_pct': conditional_VAR_5_pct,
         "probability_of_loss": prob_loss
     }
-    plot_simulation_results(portfolio_sims)
-    return portfolio_sims, sim_information
+    # plot_simulation_results(portfolio_sims)
+    return portfolio_sims, sim_information,plot_simulation_results(portfolio_sims)
 
 # ['fracture','shadow','huntsman_weapon','falchion'],[200,100,10,40]

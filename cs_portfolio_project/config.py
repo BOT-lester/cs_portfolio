@@ -49,10 +49,17 @@ class Config:
                 '3M': 4,
                 '6M': 2,
                 'Y': 1,
+                'YE': 1,
                 'B': 252
             }
     
-    # Validation methods
+    ASSET_LABEL_TO_TICKER = {
+    "SP500": "ES=F",
+    "Bitcoin": "BTC-USD",
+    "Gold": "GC=F",
+    "NASDAQ": "NQ=F",
+    "Ethereum": "ETH-USD"
+    }       
     def validate_steam_credentials(self) -> bool:
         """Validate that Steam credentials are present"""
         return bool(self.STEAM_SESSIONID and self.STEAM_LOGIN_SECURE)

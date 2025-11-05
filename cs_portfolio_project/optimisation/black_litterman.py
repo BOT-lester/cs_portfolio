@@ -126,7 +126,7 @@ def bl(w_prior, sigma_prior, p, q, omega=None, delta=2.5, tau=0.02):
     return mu_bl, sigma_bl
 
 
-def get_bl_mu_and_sigma(rets: pd.DataFrame, outperforming_assets: list, outperformance_values: list, rf=None, weights=None, delta=None, tau=None, omega=None, market_rets=None):
+def get_bl_mu_and_sigma(rets: pd.DataFrame, outperforming_assets: list, outperformance_values: list, risk_free_rate=None, weights=None, delta=None, tau=None, omega=None, market_rets=None):
     """Compute BL return (mu) and cov matrixe (sigma)
     Args:
         rets: returns of the assets
@@ -139,12 +139,14 @@ def get_bl_mu_and_sigma(rets: pd.DataFrame, outperforming_assets: list, outperfo
         mu_bl, sigma_bl
     """
     #config 
-    if rf is None:
-        rf = config.RISK_FREE_RATE
+    # print("input get_bl_mu - rets date range:", rets.index.min(), rets.index.max())
+    # print("input get_bl_mu - market_rets date range:", market_rets.index.min(), market_rets.index.max())
+    if risk_free_rate is None:
+        risk_free_rate = config.RISK_FREE_RATE
 
 
     if delta == None:
-        delta = get_bl_delta(market_rets, rf)
+        delta = get_bl_delta(market_rets, risk_free_rate)
     if tau == None:
         tau = 1/len(rets)
     if weights is None:
@@ -156,7 +158,8 @@ def get_bl_mu_and_sigma(rets: pd.DataFrame, outperforming_assets: list, outperfo
 
     mu_bl, sigma_bl = bl(weights, sigma_prior, p, q,
                          omega, delta=2.5, tau=0.02)
-
+    # print("output get_bl_mu - rets date range:", rets.index.min(), rets.index.max())
+    # print("output get_bl_mu - market_rets date range:", market_rets.index.min(), market_rets.index.max())
     return mu_bl, sigma_bl
 
 def get_bl_mu(data, **kwargs):
